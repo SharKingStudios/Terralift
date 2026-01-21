@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>motor_teleop_demo</name>
+  <name>terralift/name>
   <version>0.1.0</version>
-  <description>Robot motor slow-speed test (RPi.GPIO via rpi-lgpio) + keyboard teleop</description>
+  <description>Core ROS 2 package for the Terralift robot, containing all robot control, communication, and behavior code.</description>
   <maintainer email="brushfire257@gmail.com">Logan Peterson</maintainer>
   <license>MIT</license>
 
