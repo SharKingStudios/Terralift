@@ -4,7 +4,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='motor_teleop_demo',
+            package='terralift',
             executable='motor_test_node',
             output='screen',
             parameters=[{
