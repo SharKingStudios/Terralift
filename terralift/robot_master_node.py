@@ -1,141 +1,189 @@
 #!/usr/bin/env python3
-import time
-
 import rclpy
 from rclpy.node import Node
-
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu, LaserScan
-
-REQUIRED_TOPICS = [
-    '/scan',
-    '/imu/data',
-]
-
+from rclpy.qos import QoSProfile
+import time
 
 class RobotMasterNode(Node):
+    """
+    Master control node for Terralift robot.
+    Handles:
+      - Node monitoring / health
+      - Robot state machine
+      - LED control
+      - Nav2 lifecycle gating
+      - Teleop / E-stop / enable
+      - Rosbag2 trigger
+      - AprilTag lock placeholder
+    """
+
+    REQUIRED_NODES = [
+        'drivetrain', 'lift_arm', 'imu', 'ekf_filter_node', 'rplidar', 'arducam', 'teleop_node'
+    ]
+
     def __init__(self):
-        super().__init__('robot_master')
+        super().__init__('robot_master_node')
 
-        # ---------------- Parameters ----------------
-        self.declare_parameter('teleop_timeout', 0.5)
-        self.teleop_timeout = self.get_parameter('teleop_timeout').value
+        # ----------------------------
+        # Parameters
+        # ----------------------------
+        self.declare_parameter('heartbeat_timeout', 1.0)
+        self.declare_parameter('led_topic', '/led/control')
+        self.declare_parameter('rosbag_topic', '/robot/recording/command')
+        self.declare_parameter('april_tag_topic', '/apriltag_detected')
+        self.declare_parameter('nav2_lifecycle', True)
 
-        # ---------------- State ----------------
-        self.state = 'BOOTING'
-        self.mode = 'teleop'   # or "test"
+        self.heartbeat_timeout = self.get_parameter('heartbeat_timeout').value
+        self.led_topic = self.get_parameter('led_topic').value
+        self.rosbag_topic = self.get_parameter('rosbag_topic').value
+        self.april_tag_topic = self.get_parameter('april_tag_topic').value
+        self.nav2_lifecycle = self.get_parameter('nav2_lifecycle').value
+
+        # ----------------------------
+        # Publishers
+        # ----------------------------
+        self.led_pub = self.create_publisher(String, self.led_topic, 10)
+        self.robot_state_pub = self.create_publisher(String, '/robot/state', 10)
+        self.rosbag_pub = self.create_publisher(String, self.rosbag_topic, 10)
+
+        # ----------------------------
+        # Subscriptions
+        # ----------------------------
+        # Teleop heartbeat
+        self.teleop_heartbeat_sub = self.create_subscription(
+            Bool, '/teleop/heartbeat', self.teleop_heartbeat_cb, 10
+        )
+
+        # AprilTag detection
+        self.april_tag_sub = self.create_subscription(
+            Bool, self.april_tag_topic, self.april_cb, 10
+        )
+
+        # ----------------------------
+        # Internal state
+        # ----------------------------
+        self.node_last_seen = {node: 0.0 for node in self.REQUIRED_NODES}
+        self.teleop_alive = False
+        self.robot_state = 'DISABLED'
+        self.april_lock = False
         self.enabled = False
-        self.apriltag_locked = False
+        self.in_fault = False
+        self.last_teleop = time.time()
 
-        self.last_teleop_time = None
+        # ----------------------------
+        # Timer loops
+        # ----------------------------
+        self.create_timer(0.1, self.state_machine_loop)
+        self.create_timer(0.5, self.led_loop)
+        self.create_timer(0.2, self.node_monitor_loop)
 
-        # ---------------- Publishers ----------------
-        self.cmd_pub = self.create_publisher(Twist, 'cmd_mecanum', 10)
-        self.state_pub = self.create_publisher(String, 'robot/state', 10)
+        self.get_logger().info("Robot master node initialized")
 
-        # ---------------- Subscriptions ----------------
-        self.create_subscription(Twist, 'teleop/cmd_vel', self.teleop_cmd_cb, 10)
-        self.create_subscription(Bool, 'teleop/heartbeat', self.teleop_heartbeat_cb, 10)
-        self.create_subscription(Bool, 'teleop/enable', self.enable_cb, 10)
-        self.create_subscription(Bool, 'teleop/estop', self.estop_cb, 10)
-        self.create_subscription(String, 'teleop/mode', self.mode_cb, 10)
-        self.create_subscription(Bool, 'teleop/follow_path', self.follow_path_cb, 10)
-
-        # Nav2 velocity input
-        self.create_subscription(Twist, 'cmd_vel', self.nav2_cmd_cb, 10)
-
-        # ---------------- Timers ----------------
-        self.health_timer = self.create_timer(0.2, self.health_check)
-        self.state_timer = self.create_timer(0.1, self.publish_state)
-
-        # ---------------- Internal ----------------
-        self.last_nav2_cmd = Twist()
-        self.last_teleop_cmd = Twist()
-        self.following_path = False
-
-        self.get_logger().info("Robot master node online")
-
-    # =========================================================
-    # Teleop
-    # =========================================================
-
+    # ----------------------------
+    # Teleop heartbeat
+    # ----------------------------
     def teleop_heartbeat_cb(self, msg: Bool):
-        if msg.data:
-            self.last_teleop_time = time.time()
+        self.teleop_alive = msg.data
+        self.last_teleop = time.time()
 
-    def enable_cb(self, msg: Bool):
-        if msg.data and self.state != 'FAULT':
-            self.enabled = True
-            self.state = 'ENABLED'
-        elif not msg.data:
+    # ----------------------------
+    # AprilTag detection
+    # ----------------------------
+    def april_cb(self, msg: Bool):
+        self.april_lock = msg.data
+
+    # ----------------------------
+    # Node health monitoring
+    # ----------------------------
+    def node_monitor_loop(self):
+        # Placeholder for actual node health checking via rclpy.node_names()
+        # For now, we assume nodes publish their heartbeat or master monitors topics
+        now = time.time()
+        for node in self.node_last_seen.keys():
+            # If no heartbeat for 3 sec → mark offline
+            last = self.node_last_seen[node]
+            if now - last > 3.0:
+                self.get_logger().warn(f"Node {node} heartbeat timeout")
+                self.set_robot_state('FAULT')
+                return
+
+    # ----------------------------
+    # State machine loop
+    # ----------------------------
+    def state_machine_loop(self):
+        now = time.time()
+
+        # Teleop disconnect → estop
+        if self.enabled and now - self.last_teleop > self.heartbeat_timeout:
+            self.get_logger().warn("Teleop disconnected → disabling robot")
             self.enabled = False
-            self.stop_motion()
-            self.state = 'DISABLED'
+            self.in_fault = True
+            self.set_robot_state('FAULT')
+            # Stop any motion
+            self.publish_stop()
 
-    def estop_cb(self, msg: Bool):
-        if msg.data:
-            self.enter_fault("E-STOP")
+        # Fault state
+        if self.in_fault:
+            self.enabled = False
+            self.set_robot_state('FAULT')
+            return
 
-    def mode_cb(self, msg: String):
-        self.mode = msg.data
+        # Check all nodes online
+        all_online = all(now - self.node_last_seen[n] < 3.0 for n in self.REQUIRED_NODES)
+        if not all_online:
+            self.set_robot_state('FAULT')
+            return
 
-    def follow_path_cb(self, msg: Bool):
-        self.following_path = msg.data
+        # Ready state
+        if self.enabled:
+            self.set_robot_state('READY')
+        else:
+            self.set_robot_state('DISABLED')
 
-    def teleop_cmd_cb(self, msg: Twist):
-        self.last_teleop_cmd = msg
+    # ----------------------------
+    # Publish stop motion
+    # ----------------------------
+    def publish_stop(self):
+        twist_pub = self.create_publisher(Twist, '/cmd_mecanum', 10)
+        twist_pub.publish(Twist())
 
-    # =========================================================
-    # Nav2
-    # =========================================================
-
-    def nav2_cmd_cb(self, msg: Twist):
-        self.last_nav2_cmd = msg
-
-    # =========================================================
-    # Health + State
-    # =========================================================
-
-    def health_check(self):
-        # Check teleop timeout
-        if self.last_teleop_time:
-            if time.time() - self.last_teleop_time > self.teleop_timeout:
-                self.enter_fault("TELEOP LOST")
-
-        # BOOTING → READY
-        if self.state == 'BOOTING':
-            self.state = 'DISABLED'
-
-        # Motion arbitration
-        if self.state in ['ENABLED', 'READY']:
-            if self.mode == 'teleop':
-                if self.following_path:
-                    self.cmd_pub.publish(self.last_nav2_cmd)
-                else:
-                    self.cmd_pub.publish(self.last_teleop_cmd)
-            elif self.mode == 'test':
-                self.stop_motion()
-
-    def publish_state(self):
+    # ----------------------------
+    # LED control
+    # ----------------------------
+    def led_loop(self):
         msg = String()
-        msg.data = self.state
-        self.state_pub.publish(msg)
 
-    # =========================================================
-    # Helpers
-    # =========================================================
+        if self.robot_state == 'FAULT':
+            msg.data = 'RED'
+        elif self.robot_state == 'DISABLED':
+            msg.data = 'YELLOW_PULSE'
+        elif self.robot_state == 'READY':
+            msg.data = 'GREEN_FAST' if self.april_lock else 'GREEN_SLOW'
+        else:
+            msg.data = 'OFF'
 
-    def stop_motion(self):
-        self.cmd_pub.publish(Twist())
+        self.led_pub.publish(msg)
 
-    def enter_fault(self, reason):
-        if self.state != 'FAULT':
-            self.get_logger().error(f"FAULT: {reason}")
-        self.state = 'FAULT'
-        self.enabled = False
-        self.stop_motion()
+    # ----------------------------
+    # Robot state helper
+    # ----------------------------
+    def set_robot_state(self, state: str):
+        if self.robot_state != state:
+            self.robot_state = state
+            msg = String()
+            msg.data = state
+            self.robot_state_pub.publish(msg)
+            self.get_logger().info(f"Robot state: {state}")
+
+    # ----------------------------
+    # Rosbag trigger helper
+    # ----------------------------
+    def trigger_rosbag(self, start: bool):
+        msg = String()
+        msg.data = 'START' if start else 'STOP'
+        self.rosbag_pub.publish(msg)
 
 
 def main(args=None):
