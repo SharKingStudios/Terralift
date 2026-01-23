@@ -3,21 +3,17 @@ planner_server:
     planner_plugins: ["Hybrid"]
     Hybrid:
       plugin: "nav2_smac_planner/SmacPlannerHybrid"
+      debug_visualizations: true
+      publish_expanded_nodes: true
       motion_model_for_search: "OMNI"
-      tolerance: 0.25
 
 controller_server:
   ros__parameters:
     controller_plugins: ["DWB"]
     DWB:
       plugin: "dwb_core::DWBLocalPlanner"
-      omni: true
-      max_vel_x: 0.5
-      max_vel_y: 0.5
-      max_vel_theta: 2.5
-      acc_lim_x: 2.5
-      acc_lim_y: 2.5
-      acc_lim_theta: 3.2
+      debug_trajectory_details: true
+      publish_cost_grid_pc: true
 
 local_costmap:
   ros__parameters:
