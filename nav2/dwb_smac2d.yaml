@@ -1,22 +1,29 @@
-planner_server:
-  ros__parameters:
-    planner_plugins: ["GridBased"]
-    GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"
-      tolerance: 0.25
-
 controller_server:
   ros__parameters:
     controller_plugins: ["DWB"]
     DWB:
       plugin: "dwb_core::DWBLocalPlanner"
-      omni: true
-      max_vel_x: 0.5
-      max_vel_y: 0.5
-      max_vel_theta: 2.5
-      acc_lim_x: 2.5
-      acc_lim_y: 2.5
-      acc_lim_theta: 3.2
+      debug_trajectory_details: true
+      publish_cost_grid_pc: true
+      critics:
+        - ObstacleFootprint
+        - PathAlign
+        - GoalAlign
+        - PathDist
+        - GoalDist
+      ObstacleFootprint.scale: 1.0
+      PathAlign.scale: 32.0
+      GoalAlign.scale: 24.0
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
+
+planner_server:
+  ros__parameters:
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      debug_visualizations: true
+      publish_expanded_nodes: true
 
 local_costmap:
   ros__parameters:
