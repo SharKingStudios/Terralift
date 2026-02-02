@@ -10,9 +10,12 @@ try:
     import board
     import busio
     import adafruit_bno055
-except Exception:
+except Exception as e:
     SIM_DEFAULT = True
     board = None
+    busio = None
+    adafruit_bno055 = None
+
 
 
 class BNO055ImuNode(Node):
@@ -30,7 +33,7 @@ class BNO055ImuNode(Node):
 
         self.pub = self.create_publisher(Imu, 'imu/data', 10)
 
-        if self.simulate:
+        if self.simulate or board is None:
             self.get_logger().warn("IMU SIMULATION MODE (no I2C)")
             self.bno = None
         else:
@@ -48,7 +51,7 @@ class BNO055ImuNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
 
-        if self.simulate:
+        if self.simulate or board is None:
             # Flat, stationary IMU
             msg.orientation.w = 1.0
             self.pub.publish(msg)
