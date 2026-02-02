@@ -6,15 +6,19 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu
 
 SIM_DEFAULT = False
+IMPORT_ERROR = ""
+
 try:
     import board
     import busio
     import adafruit_bno055
 except Exception as e:
     SIM_DEFAULT = True
+    IMPORT_ERROR = repr(e)
     board = None
     busio = None
     adafruit_bno055 = None
+
 
 
 
@@ -33,12 +37,20 @@ class BNO055ImuNode(Node):
 
         self.pub = self.create_publisher(Imu, 'imu/data', 10)
 
-        if self.simulate or board is None:
+
+        import sys
+        self.get_logger().info(f"Python executable: {sys.executable}")
+        self.get_logger().info(f"SIM_DEFAULT={SIM_DEFAULT} simulate_param={self.simulate}")
+        if SIM_DEFAULT:
+            self.get_logger().error(f"IMU imports failed: {IMPORT_ERROR}")
+
+    
+        if self.simulate or SIM_DEFAULT:
             self.get_logger().warn("IMU SIMULATION MODE (no I2C)")
             self.bno = None
         else:
             i2c = busio.I2C(board.SCL, board.SDA)
-            self.bno = adafruit_bno055.BNO055(i2c)
+            self.bno = adafruit_bno055.BNO055_I2C(i2c)
             self.get_logger().info("BNO055 IMU initialized over I2C")
 
         period = 1.0 / self.rate_hz
