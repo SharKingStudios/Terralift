@@ -12,7 +12,8 @@ from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 
 from lifecycle_msgs.srv import ChangeState
-from slam_toolbox.srv import Pause, Resume, SerializePoseGraph
+from std_srvs.srv import Empty
+from slam_toolbox.srv import SerializePoseGraph
 
 from builtin_interfaces.msg import Time
 
@@ -82,8 +83,11 @@ class RobotMaster(Node):
         # -----------------------------
         # Services
         # -----------------------------
-        self.pause_slam = self.create_client(Pause, '/slam_toolbox/pause_localization')
-        self.resume_slam = self.create_client(Resume, '/slam_toolbox/resume_localization')
+        # slam_toolbox pause/resume are empty-request services on many ROS 2 distros
+        self.pause_slam = self.create_client(Empty, '/slam_toolbox/pause_localization')
+        self.resume_slam = self.create_client(Empty, '/slam_toolbox/resume_localization')
+
+        # Keep serialize if your slam_toolbox build provides it
         self.serialize_slam = self.create_client(
             SerializePoseGraph, '/slam_toolbox/serialize_map'
         )
@@ -154,14 +158,14 @@ class RobotMaster(Node):
 
         self.current_trial_id = self.generate_trial_id(cfg)
         self.start_rosbag()
-        self.resume_slam.call_async(Resume.Request())
+        self.call_empty_service(self.resume_slam, '/slam_toolbox/resume_localization')
 
         self.state = RobotState.RUNNING
         self.get_logger().info(f"Starting trial {self.current_trial_id}")
 
     def complete_trial(self):
         self.stop_robot()
-        self.pause_slam.call_async(Pause.Request())
+        self.call_empty_service(self.pause_slam, '/slam_toolbox/pause_localization')
         self.stop_rosbag()
 
         self.state = RobotState.TRIAL_COMPLETE
@@ -217,8 +221,18 @@ class RobotMaster(Node):
         else:
             self.led_pub.publish(String(data='OFF'))
 
+        def call_empty_service(self, client, name, timeout_sec=0.2):
+        if not client.service_is_ready():
+            if not client.wait_for_service(timeout_sec=timeout_sec):
+                self.get_logger().warn(f"Service not ready: {name}")
+                return False
+        client.call_async(Empty.Request())
+        return True
+
+
     def start_rosbag(self):
         self.bag_path = os.path.join(self.bag_dir, self.current_trial_id)
+        os.makedirs(self.bag_path, exist_ok=True)  # ensure exists before writing metadata
         os.system(f"ros2 bag record -a -o {self.bag_path} &")
         self.write_metadata()
 
