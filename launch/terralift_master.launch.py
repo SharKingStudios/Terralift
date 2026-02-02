@@ -1,8 +1,9 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -29,9 +30,14 @@ def generate_launch_description():
     pkg_share = get_package_share_directory('terralift')
 
     ekf_config = os.path.join(pkg_share, 'config', 'ekf_imu.yaml')
-    nav2_params = os.path.join(
-        pkg_share, 'nav2', LaunchConfiguration('nav2_config')
-    )
+
+    # IMPORTANT:
+    # LaunchConfiguration is a substitution, so you cannot use os.path.join with it.
+    nav2_params = PathJoinSubstitution([
+        FindPackageShare('terralift'),
+        'nav2',
+        LaunchConfiguration('nav2_config'),
+    ])
 
     # ----------------------------
     # Core nodes (always on)

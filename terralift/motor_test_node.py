@@ -28,7 +28,7 @@ class MotorTestNode(Node):
 
         # ----- Parameters (defaults match your ESP32 mapping) -----
         self.declare_parameter('dir_pin', 17)              # BCM17
-        self.declare_parameter('pwm_pin', 18)              # BCM18
+        self.declare_parameter('pwm_pin', 27)              # BCM27
         self.declare_parameter('pwm_hz', 2000)             # 2 kHz like ESP32
         self.declare_parameter('test_duty', 15.0)          # percent
         self.declare_parameter('dir_active_high', True)    # HIGH = "forward" before FL_POL
