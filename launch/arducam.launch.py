@@ -17,7 +17,7 @@ def generate_launch_description():
         description='Namespace for camera topics'
     )
 
-    # Camera node (image_raw + camera_info)
+    # Camera node (publishes image_raw + camera_info)
     cam = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -29,11 +29,11 @@ def generate_launch_description():
         }]
     )
 
-    # Rectification (image_rect)
-    rect = Node(
+    # Rectification node (publishes image_rect)
+    rectify = Node(
         package='image_proc',
-        executable='image_proc',
-        name='image_proc',
+        executable='rectify_node',
+        name='rectify',
         output='screen',
         namespace=LaunchConfiguration('camera_name'),
     )
@@ -42,5 +42,5 @@ def generate_launch_description():
         video_device,
         camera_name,
         cam,
-        rect
+        rectify
     ])
