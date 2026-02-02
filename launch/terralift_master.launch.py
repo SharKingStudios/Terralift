@@ -42,10 +42,10 @@ def generate_launch_description():
     # ----------------------------
     # Core nodes (always on)
     # ----------------------------
-    master_node = Node(
+    robot_master_node = Node(
         package='terralift',
-        executable='master_node',
-        name='master_node',
+        executable='robot_master_node',
+        name='robot_master_node',
         output='screen',
         parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}]
     )
@@ -129,7 +129,7 @@ def generate_launch_description():
         nav2_config,
         use_sim_time,
 
-        master_node,
+        robot_master_node,
         led_node,
 
         drivetrain_node,
