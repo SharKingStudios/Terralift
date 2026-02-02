@@ -78,18 +78,19 @@ class BNO055ImuNode(Node):
             msg.orientation.w = q[3]
 
         # Angular velocity (deg/s → rad/s)
-        gyro = self.bno.gyro
+        gyro = getattr(self.bno, "gyro", None)
         if gyro:
             msg.angular_velocity.x = math.radians(gyro[0])
             msg.angular_velocity.y = math.radians(gyro[1])
             msg.angular_velocity.z = math.radians(gyro[2])
 
         # Linear acceleration (m/s^2)
-        accel = self.bno.accelerometer
+        # Adafruit BNO055 property is "acceleration" (not "accelerometer")
+        accel = getattr(self.bno, "acceleration", None)
         if accel:
-            msg.linear_acceleration.x = accel[0]
-            msg.linear_acceleration.y = accel[1]
-            msg.linear_acceleration.z = accel[2]
+            msg.linear_acceleration.x = float(accel[0])
+            msg.linear_acceleration.y = float(accel[1])
+            msg.linear_acceleration.z = float(accel[2])
 
         self.pub.publish(msg)
 
