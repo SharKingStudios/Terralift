@@ -221,7 +221,7 @@ class RobotMaster(Node):
         else:
             self.led_pub.publish(String(data='OFF'))
 
-        def call_empty_service(self, client, name, timeout_sec=0.2):
+    def call_empty_service(self, client, name, timeout_sec=0.2):
         if not client.service_is_ready():
             if not client.wait_for_service(timeout_sec=timeout_sec):
                 self.get_logger().warn(f"Service not ready: {name}")

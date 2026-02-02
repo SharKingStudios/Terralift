@@ -20,7 +20,7 @@ class StatusLedNode(Node):
 
         # ---------------- Parameters ----------------
         self.declare_parameter('led_count', 144)
-        self.declare_parameter('gpio_pin', 21)
+        self.declare_parameter('gpio_pin', 4)
         self.declare_parameter('brightness', 64)
         self.declare_parameter('base_pulse_hz', 0.5)
         self.declare_parameter('tag_pulse_multiplier', 2.5)

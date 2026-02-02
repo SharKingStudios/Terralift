@@ -17,7 +17,7 @@ class LiftArmNode(Node):
         super().__init__('lift_arm')
 
         # ---------------- Parameters ----------------
-        self.declare_parameter('pwm_pin', 12)            # GPIO12 (Pin 32)
+        self.declare_parameter('pwm_pin', 19)            # GPIO12 (Pin 32)
         self.declare_parameter('pwm_hz', 50)             # Servo PWM
         self.declare_parameter('min_us', 1200)           # HARD LIMIT
         self.declare_parameter('max_us', 1800)           # HARD LIMIT

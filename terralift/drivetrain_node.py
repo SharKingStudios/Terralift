@@ -19,7 +19,7 @@ class MecanumDriveNode(Node):
 
         # ---------------- Parameters ----------------
         self.declare_parameter('pwm_hz', 2000)
-        self.declare_parameter('max_duty', 70.0)
+        self.declare_parameter('max_duty', 50.0)
         self.declare_parameter('simulate', SIM_DEFAULT)
 
         self.simulate = self.get_parameter('simulate').value
@@ -28,10 +28,10 @@ class MecanumDriveNode(Node):
 
         # Wheel GPIO map: FL, FR, RL, RR
         self.wheels = {
-            'fl': {'dir': 17, 'pwm': 18},
-            'fr': {'dir': 27, 'pwm': 22},
-            'rl': {'dir': 23, 'pwm': 24},
-            'rr': {'dir': 25, 'pwm': 5},
+            'fl': {'dir': 17, 'pwm': 27},
+            'fr': {'dir': 22, 'pwm': 10},
+            'rl': {'dir': 9, 'pwm': 11},
+            'rr': {'dir': 5, 'pwm': 13},
         }
 
         self.pwms = {}
