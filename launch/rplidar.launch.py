@@ -37,7 +37,7 @@ def generate_launch_description():
 
     node = Node(
         package='rplidar_ros',
-        executable='rplidar_node',   # if this fails, check: ros2 pkg executables rplidar_ros
+        executable='rplidar_composition',
         name='rplidar',
         output='screen',
         parameters=[{
