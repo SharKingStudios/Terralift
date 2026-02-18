@@ -1,0 +1,109 @@
+# =========================
+# Terralift quick commands
+# =========================
+
+# --- edit these 2 lines to match your machine ---
+export TL_WS="$HOME/terralift_ws"
+export TL_REPO="$TL_WS/src/Terralift"   # repo root (git)
+
+# Source ROS + your overlay (safe to call repeatedly)
+tls () {
+  if [ -z "$ROS_DISTRO" ]; then
+    echo "ROS_DISTRO not set. Did you source /opt/ros/<distro>/setup.bash?"
+    return 1
+  fi
+  # shellcheck disable=SC1091
+  source "/opt/ros/$ROS_DISTRO/setup.bash" || return 1
+  [ -f "$TL_WS/install/setup.bash" ] && source "$TL_WS/install/setup.bash"
+}
+
+# Jump helpers
+alias tlws='cd "$TL_WS"'
+alias tlrepo='cd "$TL_REPO"'
+
+# Git pull (and submodules if you use them)
+tlpull () {
+  cd "$TL_REPO" || return 1
+  git pull --rebase
+  git submodule update --init --recursive
+}
+
+# Dependencies (run when packages change)
+tldeps () {
+  tls || return 1
+  cd "$TL_WS" || return 1
+  rosdep update
+  rosdep install --from-paths src -i -r -y
+}
+
+# Fast build (just terralift)
+tlb () {
+  tls || return 1
+  cd "$TL_WS" || return 1
+  colcon build --symlink-install \
+    --packages-select terralift \
+    --event-handlers console_direct+
+  source "$TL_WS/install/setup.bash"
+}
+
+# Full build (everything in ws)
+tlba () {
+  tls || return 1
+  cd "$TL_WS" || return 1
+  colcon build --symlink-install --event-handlers console_direct+
+  source "$TL_WS/install/setup.bash"
+}
+
+# Clean rebuild (use when things get weird)
+tlclean () {
+  cd "$TL_WS" || return 1
+  rm -rf build install log
+}
+
+# One-command: pull + deps + build terralift
+tlup () {
+  tlpull || return 1
+  tldeps || return 1
+  tlb || return 1
+}
+
+# -------------------------
+# Bringup / RViz / SLAM
+# -------------------------
+
+# Terralift master launch (takes nav2 config filename as arg)
+# usage: tlbringup rpp_smac2d.yaml
+tlbringup () {
+  tls || return 1
+  local cfg="${1:-rpp_smac2d.yaml}"
+  ros2 launch terralift terralift_master.launch.py nav2_config:="$cfg" use_sim_time:=false
+}
+
+# SLAM + RViz (your map_generation.launch.py)
+tlslam () {
+  tls || return 1
+  ros2 launch terralift map_generation.launch.py
+}
+
+# RViz alone
+alias tlrviz='tls && rviz2'
+
+# TF frame graph (outputs frames.pdf in current dir)
+alias tlframes='tls && ros2 run tf2_tools view_frames'
+
+# Quick topic sanity check for RViz/SLAM
+tlcheck () {
+  tls || return 1
+  ros2 topic list | egrep "(/tf$|/tf_static$|/scan$|/map$|/odom$|cmd_vel|cmd_mecanum)"
+}
+
+# Bag everything into a named folder
+# usage: tlbag REAL_RPP_SMAC2D_T01
+tlbag () {
+  tls || return 1
+  local id="${1:-trial}"
+  local out="$HOME/terralift_bags/${id}_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$HOME/terralift_bags"
+  echo "Recording to: $out"
+  ros2 bag record -a -o "$out"
+}

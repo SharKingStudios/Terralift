@@ -55,12 +55,15 @@ setup(
 
             # Sensors
             'imu_node = terralift.imu_node:main',
-            'apriltag_node = terralift.apriltag_node:main',
 
             # State & Control
             'robot_master_node = terralift.robot_master_node:main',
             'teleop_node = terralift.teleop_node:main',
-            'rosbag_record_node = terralift.rosbag_record_node:main',
+
+            # Research / bringup helpers
+            'open_loop_odom = terralift.open_loop_odom_node:main',
+            'cmd_vel_to_mecanum = terralift.cmd_vel_to_mecanum_node:main',
+            'rosbag_node = terralift.rosbag_node:main',
         ],
     },
 )

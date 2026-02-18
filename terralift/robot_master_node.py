@@ -56,7 +56,7 @@ class RobotMaster(Node):
         # -----------------------------
         # Parameters
         # -----------------------------
-        self.declare_parameter('bag_dir', '/home/ubuntu/terralift_bags')
+        self.declare_parameter('bag_dir', '/home/pi/terralift_bags')
         self.declare_parameter('teleop_timeout', 1.5)
 
         self.bag_dir = self.get_parameter('bag_dir').value
