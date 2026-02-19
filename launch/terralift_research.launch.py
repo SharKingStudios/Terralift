@@ -9,6 +9,10 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
+
+
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('terralift')
@@ -53,7 +57,6 @@ def generate_launch_description():
         executable='imu_node',
         name='imu_node',
         output='screen',
-        parameters=[os.path.join(pkg_share, 'config', 'imu_config.yaml')],
     )
 
     rplidar = IncludeLaunchDescription(
@@ -65,7 +68,6 @@ def generate_launch_description():
         executable='drivetrain_node',
         name='drivetrain_node',
         output='screen',
-        parameters=[os.path.join(pkg_share, 'config', 'drivetrain_config.yaml')],
     )
 
     # Static TF: base_link -> laser and base_link -> imu_link
@@ -108,7 +110,7 @@ def generate_launch_description():
         name='open_loop_odom',
         output='screen',
         parameters=[{
-            'cmd_vel_topic': '/cmd_vel',
+            'cmd_vel_topic': '/cmd_vel_nav',
             'imu_topic': '/imu/data',
             'odom_topic': '/odom',
             'odom_frame': 'odom',
@@ -126,7 +128,7 @@ def generate_launch_description():
         name='cmd_vel_to_mecanum',
         output='screen',
         parameters=[{
-            'input_topic': '/cmd_vel',
+            'input_topic': '/cmd_vel_nav',
             'output_topic': '/cmd_mecanum',
             'max_vx_mps': LaunchConfiguration('max_vx_mps'),
             'max_vy_mps': LaunchConfiguration('max_vy_mps'),
@@ -147,19 +149,28 @@ def generate_launch_description():
 
     # ----------- Nav2 (navigation only; SLAM provides /map + map->odom) -----------
     nav2_dir = get_package_share_directory('nav2_bringup')
+
+    nav2_params_file = PathJoinSubstitution([
+        FindPackageShare('terralift'),
+        'nav2',
+        LaunchConfiguration('nav2_params')
+    ])
+
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(nav2_dir, 'launch', 'bringup_launch.py')),
         launch_arguments={
             'use_sim_time': LaunchConfiguration('use_sim_time'),
             'autostart': LaunchConfiguration('autostart'),
-            'params_file': os.path.join(pkg_share, 'nav2', LaunchConfiguration('nav2_params')),
-
-            # We run SLAM Toolbox ourselves; don't start map_server/amcl inside Nav2.
+            'params_file': nav2_params_file,
             'slam': 'False',
             'use_localization': 'False',
             'map': '',
+            'use_composition': 'False',
+            'respawn': 'False',
+            'rviz': 'False',   # avoid rviz on robot
         }.items(),
     )
+
 
     return LaunchDescription([
         use_sim_time,
