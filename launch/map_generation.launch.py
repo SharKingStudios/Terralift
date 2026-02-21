@@ -50,6 +50,7 @@ def generate_launch_description():
             'transform_publish_period': 0.05,
             'map_update_interval': 2.0,
             'use_pose_extrapolator': False,
+            'scan_queue_size': 50,
         }]
     )
 

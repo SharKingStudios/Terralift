@@ -197,6 +197,53 @@ global_costmap:
         inflation_radius: 0.6
         cost_scaling_factor: 4.0
 
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+
+    # REQUIRED: list of source names (string_array)
+    observation_sources: ["scan"]
+
+    # Source definition for "scan"
+    scan:
+      type: "scan"                # LaserScan source
+      topic: "/scan"
+      min_height: 0.0
+      max_height: 2.0
+
+    # Minimal safety setup (keeps it from faulting)
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    transform_tolerance: 0.2
+
+    # Polygons to monitor: one simple footprint polygon around robot
+    polygons: ["robot_footprint"]
+    robot_footprint:
+      type: "polygon"
+      action_type: "stop"         # stop when something enters polygon
+      min_points: 3
+      polygon:
+        points: [
+          [ 0.30,  0.25],
+          [ 0.30, -0.25],
+          [-0.30, -0.25],
+          [-0.30,  0.25]
+        ]
+
+    # Optional: slowdown zone (uncomment if you want)
+    # polygons: ["slow_zone", "robot_footprint"]
+    # slow_zone:
+    #   type: "polygon"
+    #   action_type: "slowdown"
+    #   slowdown_ratio: 0.3
+    #   polygon:
+    #     points: [
+    #       [ 0.60,  0.45],
+    #       [ 0.60, -0.45],
+    #       [-0.40, -0.45],
+    #       [-0.40,  0.45]
+    #     ]
+
 lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false

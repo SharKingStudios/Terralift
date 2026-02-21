@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>terralift</name>
-  <version>0.0.1</version>
+  <version>0.0.2</version>
   <description>Core ROS 2 package for the Terralift robot, containing all robot control, communication, and behavior code.</description>
   <maintainer email="brushfire257@gmail.com">Logan Peterson</maintainer>
   <license>MIT</license>

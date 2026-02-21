@@ -104,20 +104,19 @@ def generate_launch_description():
     )
 
     # Open-loop odometry for SLAM/Nav2 (no wheel encoders)
-    open_loop_odom = Node(
+    sensor_odom = Node(
         package='terralift',
-        executable='open_loop_odom',
-        name='open_loop_odom',
+        executable='sensor_odom',
+        name='sensor_odom',
         output='screen',
         parameters=[{
-            'cmd_vel_topic': '/cmd_vel_nav',
+            'slam_pose_topic': '/pose',
             'imu_topic': '/imu/data',
             'odom_topic': '/odom',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
-            'publish_tf': True,
-            'use_imu_yaw': True,
-            'rate_hz': 50.0,
+            'max_delta_m': 0.75,
+            'use_full_imu_quat': True,
         }],
     )
 
@@ -168,6 +167,8 @@ def generate_launch_description():
             'use_composition': 'False',
             'respawn': 'False',
             'rviz': 'False',   # avoid rviz on robot
+            'use_collision_monitor': 'False',
+            'collision_monitor': 'False',
         }.items(),
     )
 
@@ -186,7 +187,7 @@ def generate_launch_description():
         drivetrain,
         base_to_laser_tf,
         base_to_imu_tf,
-        open_loop_odom,
+        sensor_odom,
         cmd_adapter,
         slam,
         nav2_launch,
