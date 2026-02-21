@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -31,12 +31,19 @@ def generate_launch_description():
     # Enable SLAM Toolbox (recommended for your no-encoder setup)
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
 
+    # Optional: publish a *command-free* test odometry (for RViz debugging)
+    # This uses SLAM /pose + IMU only, and publishes /odom_slam + TF odom_slam->base_link.
+    sensor_odom_test = DeclareLaunchArgument('sensor_odom_test', default_value='false')
+    sensor_odom_mode = DeclareLaunchArgument('sensor_odom_mode', default_value='absolute')
+    sensor_odom_frame = DeclareLaunchArgument('sensor_odom_frame', default_value='odom_slam')
+    sensor_odom_topic = DeclareLaunchArgument('sensor_odom_topic', default_value='/odom_slam')
+
     # TF offsets (edit these once, then leave them stable for all trials)
     laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
     laser_y = DeclareLaunchArgument('laser_y', default_value='0.0')
     laser_z = DeclareLaunchArgument('laser_z', default_value='0.2')
     laser_roll = DeclareLaunchArgument('laser_roll', default_value='0.0')
-    laser_pitch = DeclareLaunchArgument('laser_pitch', default_value='0.0')
+    laser_pitch = DeclareLaunchArgument('laser_pitch', default_value='3.141592653589793')
     laser_yaw = DeclareLaunchArgument('laser_yaw', default_value='3.141592653589793')
 
     imu_x = DeclareLaunchArgument('imu_x', default_value='0.0')
@@ -110,16 +117,22 @@ def generate_launch_description():
         name='open_loop_odom',
         output='screen',
         parameters=[{
-            # Use whatever cmd_vel stream represents the robot’s true commanded motion
-            # If collision_monitor is active, /cmd_vel_nav_safe is ideal.
-            'cmd_vel_topic': '/cmd_vel_nav',
             'imu_topic': '/imu/data',
             'odom_topic': '/odom',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
             'rate_hz': 50.0,
             'publish_tf': True,
-            'use_imu_yaw': True,
+
+            # Recommended tuning starters:
+            'stationary_accel_thresh': 0.15,  # m/s^2
+            'stationary_gyro_thresh': 0.10,   # rad/s
+            'stationary_hold_time': 0.20,     # s
+            'bias_learn_rate': 0.6,           # 1/s
+            'zupt_vel_damp': 6.0,             # 1/s
+            'vel_decay': 0.15,                # 1/s
+            'max_speed': 2.5,                 # m/s
+            'require_imu_yaw': True,
         }],
     )
     # sensor_odom = Node(
@@ -204,12 +217,54 @@ def generate_launch_description():
         }.items(),
     )
 
+    # Debug-only odom from SLAM pose (no cmd_vel integration)
+    sensor_odom = Node(
+        package='terralift',
+        executable='sensor_odom',
+        name='sensor_odom',
+        output='screen',
+        parameters=[{
+            'slam_pose_topic': '/pose',
+            'imu_topic': '/imu/data',
+            'odom_topic': LaunchConfiguration('sensor_odom_topic'),
+            'odom_frame': LaunchConfiguration('sensor_odom_frame'),
+            'base_frame': 'base_link',
+            'publish_tf': True,
+
+            # High-rate odom publishing for smoother Nav2/RViz
+            'rate_hz': 50.0,
+
+            # Yaw source is IMU only (no cmd_vel). If IMU yaw isn't available yet, hold yaw at 0.
+            'require_imu_yaw': True,
+            'use_full_imu_quat': True,
+
+            # Add IMU linear acceleration into the mix (still NO commands)
+            'use_imu_linear_accel': True,
+            'vel_decay': 0.20,
+            'bias_learn_rate': 0.05,
+            'stationary_accel_thresh': 0.25,
+            'stationary_gyro_thresh': 0.25,
+            'stationary_vel_decay': 2.0,
+            'max_speed': 2.0,
+
+            # SLAM correction tuning (bounded so we don't teleport on loop closures)
+            'slam_pos_gain': 0.35,
+            'slam_vel_gain': 0.50,
+            'max_slam_step_m': 0.50,
+        }],
+        condition=IfCondition(LaunchConfiguration('sensor_odom_test')),
+    )
+
 
     return LaunchDescription([
         use_sim_time,
         autostart,
         nav2_params,
         use_slam,
+        sensor_odom_test,
+        sensor_odom_mode,
+        sensor_odom_frame,
+        sensor_odom_topic,
         laser_x, laser_y, laser_z, laser_roll, laser_pitch, laser_yaw,
         imu_x, imu_y, imu_z, imu_roll, imu_pitch, imu_yaw,
         max_vx, max_vy, max_wz,
@@ -224,4 +279,5 @@ def generate_launch_description():
         slam,
         slam_lifecycle_manager,
         nav2_launch,
+        sensor_odom,
     ])

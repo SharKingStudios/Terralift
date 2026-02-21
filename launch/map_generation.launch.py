@@ -4,6 +4,9 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from ament_index_python.packages import get_package_share_directory
+import os
+
 
 def generate_launch_description():
     """Run SLAM Toolbox in a headless-safe way.
@@ -24,35 +27,27 @@ def generate_launch_description():
         description='Start RViz2 (set true on laptop, false on robot)'
     )
 
+    pkg_share = get_package_share_directory('terralift')
+    slam_params_file = os.path.join(pkg_share, 'config', 'slam_toolbox_mapping.yaml')
+
     slam_node = Node(
         package='slam_toolbox',
         executable='sync_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
-        parameters=[{
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        parameters=[
+            slam_params_file,
+            {
+                # Launch-controlled
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
 
-            # Frames
-            'map_frame': 'map',
-            'odom_frame': 'odom',
-            'base_frame': 'base_link',
-            'publish_tf': True,
-
-            # Sensor
-            'scan_topic': '/scan',
-
-            # Mapping mode
-            'mode': 'mapping',
-
-            # Practical defaults for a small indoor robot
-            'resolution': 0.05,
-            'max_laser_range': 12.0,
-            'minimum_time_interval': 0.2,
-            'transform_publish_period': 0.05,
-            'map_update_interval': 2.0,
-            'use_pose_extrapolator': False,
-            'scan_queue_size': 50,
-        }]
+                # Hard overrides to keep frames consistent
+                'map_frame': 'map',
+                'odom_frame': 'odom',
+                'base_frame': 'base_link',
+                'scan_topic': '/scan',
+            },
+        ]
     )
 
     rviz = Node(

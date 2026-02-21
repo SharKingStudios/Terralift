@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""
+Open-loop odometry with IMU-aided velocity filtering (no wheel encoders).
+
+- Uses IMU yaw for heading (rotation).
+- Estimates planar velocity (vx, vy) by blending:
+    * commanded velocity (Twist)
+    * IMU-integrated velocity from linear_acceleration (x,y)
+  with an adaptive "slip" trust reduction when commanded motion does not
+  produce corresponding measured acceleration.
+
+Publishes:
+  - nav_msgs/Odometry on /odom
+  - TF odom -> base_link
+"""
+
+import math
+from typing import Optional, Tuple
+
+import rclpy
+from rclpy.node import Node
+
+from geometry_msgs.msg import TransformStamped, Twist
+try:
+    from geometry_msgs.msg import TwistStamped
+except Exception:  # pragma: no cover
+    TwistStamped = None  # type: ignore
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import Imu
+
+from tf2_ros import TransformBroadcaster
+
+
+def _yaw_from_quat(x: float, y: float, z: float, w: float) -> float:
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
+def _quat_from_yaw(yaw: float) -> Tuple[float, float, float, float]:
+    half = 0.5 * yaw
+    return (0.0, 0.0, math.sin(half), math.cos(half))
+
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return lo if x < lo else hi if x > hi else x
+
+
+class OpenLoopOdomNode(Node):
+    def __init__(self):
+        super().__init__('open_loop_odom')
+
+        # Frames
+        self.odom_frame = self.declare_parameter('odom_frame', 'odom').value
+        self.base_frame = self.declare_parameter('base_frame', 'base_link').value
+        self.publish_tf = bool(self.declare_parameter('publish_tf', True).value)
+
+        # Topics
+        self.cmd_vel_topic = self.declare_parameter('cmd_vel_topic', '/cmd_vel').value
+        self.imu_topic = self.declare_parameter('imu_topic', '/imu/data').value
+        self.odom_topic = self.declare_parameter('odom_topic', '/odom').value
+
+        # Rates
+        self.odom_rate_hz = float(self.declare_parameter('rate_hz', 50.0).value)
+
+        # Pose init
+        self.x = float(self.declare_parameter('initial_x', 0.0).value)
+        self.y = float(self.declare_parameter('initial_y', 0.0).value)
+        self.yaw = float(self.declare_parameter('initial_yaw', 0.0).value)
+
+        # Use IMU yaw only (rotation)
+        self.use_imu_yaw = bool(self.declare_parameter('use_imu_yaw', True).value)
+
+        # --- Velocity filter knobs ---
+        # Base blend: v_est = trust_cmd * v_cmd + (1-trust_cmd) * v_imu
+        self.trust_cmd_base = float(self.declare_parameter('trust_cmd_base', 0.85).value)  # 0..1
+        self.trust_cmd_min = float(self.declare_parameter('trust_cmd_min', 0.10).value)    # 0..1
+        self.trust_cmd_max = float(self.declare_parameter('trust_cmd_max', 0.98).value)    # 0..1
+
+        # IMU accel integration gains
+        # v_imu = v_imu + (a - bias) * dt, then soft decay toward 0 to fight drift
+        self.imu_vel_decay = float(self.declare_parameter('imu_vel_decay', 0.05).value)  # 1/s (0 = none)
+
+        # Bias learning (ZUPT-ish) when cmd speed is near zero
+        self.zupt_enable = bool(self.declare_parameter('zupt_enable', True).value)
+        self.zupt_cmd_speed_thresh = float(self.declare_parameter('zupt_cmd_speed_thresh', 0.03).value)  # m/s
+        self.bias_learn_rate = float(self.declare_parameter('bias_learn_rate', 0.05).value)  # 1/s
+
+        # Slip detector (reduces trust in cmd when cmd implies motion but IMU accel is small)
+        self.slip_enable = bool(self.declare_parameter('slip_enable', True).value)
+        self.slip_cmd_speed_thresh = float(self.declare_parameter('slip_cmd_speed_thresh', 0.20).value)  # m/s
+        self.slip_accel_thresh = float(self.declare_parameter('slip_accel_thresh', 0.20).value)          # m/s^2
+        self.slip_decay_rate = float(self.declare_parameter('slip_decay_rate', 1.2).value)               # 1/s
+        self.slip_recover_rate = float(self.declare_parameter('slip_recover_rate', 0.4).value)           # 1/s
+
+        # Optional clamp on estimated speed (helps prevent runaway)
+        self.max_speed = float(self.declare_parameter('max_speed', 2.0).value)  # m/s
+
+        # State
+        self._last_time = self.get_clock().now()
+
+        self._last_cmd: Twist = Twist()
+        self._last_cmd_vx = 0.0
+        self._last_cmd_vy = 0.0
+
+        self._imu_yaw: Optional[float] = None
+        self._imu_ax = 0.0
+        self._imu_ay = 0.0
+
+        # IMU accel bias estimate (base frame)
+        self._bias_ax = 0.0
+        self._bias_ay = 0.0
+
+        # IMU-integrated velocity (base frame)
+        self._v_imu_x = 0.0
+        self._v_imu_y = 0.0
+
+        # Adaptive trust in cmd
+        self._trust_cmd = _clamp(self.trust_cmd_base, self.trust_cmd_min, self.trust_cmd_max)
+
+        # ROS IO
+        self._tf_broadcaster = TransformBroadcaster(self)
+        self._odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
+
+        self._cmd_sub = None
+        self._discover_timer = self.create_timer(1.0, self._discover_cmd_topic)
+        self.create_subscription(Imu, self.imu_topic, self._on_imu, 50)
+
+        self._timer = self.create_timer(1.0 / self.odom_rate_hz, self._on_timer)
+
+        self.get_logger().info(
+            f"Open-loop odom (filtered) using {self.cmd_vel_topic} + {self.imu_topic} -> {self.odom_topic} "
+            f"and TF ({self.odom_frame}->{self.base_frame}); cmd_trust_base={self.trust_cmd_base}"
+        )
+
+    def _on_cmd_vel(self, msg: Twist):
+        self._last_cmd = msg
+
+    def _on_cmd_vel_stamped(self, msg):
+        self._last_cmd = msg.twist
+
+    def _discover_cmd_topic(self):
+        if self._cmd_sub is not None:
+            return
+
+        try:
+            topics = dict(self.get_topic_names_and_types())
+        except Exception:
+            return
+
+        types = topics.get(self.cmd_vel_topic, [])
+        if not types:
+            return
+
+        if any(t.endswith('geometry_msgs/msg/TwistStamped') for t in types) and TwistStamped is not None:
+            self._cmd_sub = self.create_subscription(TwistStamped, self.cmd_vel_topic, self._on_cmd_vel_stamped, 10)
+            self.get_logger().info(f"Subscribed to {self.cmd_vel_topic} as TwistStamped")
+        elif any(t.endswith('geometry_msgs/msg/Twist') for t in types):
+            self._cmd_sub = self.create_subscription(Twist, self.cmd_vel_topic, self._on_cmd_vel, 10)
+            self.get_logger().info(f"Subscribed to {self.cmd_vel_topic} as Twist")
+
+    def _on_imu(self, msg: Imu):
+        # Rotation: yaw only
+        q = msg.orientation
+        self._imu_yaw = _yaw_from_quat(q.x, q.y, q.z, q.w)
+
+        # Accel: we assume IMU linear_acceleration is already gravity-compensated OR robot is flat enough
+        # for planar x/y usage. This is the "poor-man" part.
+        self._imu_ax = float(msg.linear_acceleration.x)
+        self._imu_ay = float(msg.linear_acceleration.y)
+
+    def _update_cmd_trust(self, dt: float, cmd_speed: float, accel_mag: float):
+        if not self.slip_enable:
+            self._trust_cmd = _clamp(self.trust_cmd_base, self.trust_cmd_min, self.trust_cmd_max)
+            return
+
+        # If commanded speed is high but measured accel is low -> likely slipping / not actually accelerating
+        slipping = (cmd_speed > self.slip_cmd_speed_thresh) and (accel_mag < self.slip_accel_thresh)
+
+        if slipping:
+            self._trust_cmd -= self.slip_decay_rate * dt
+        else:
+            # recover back toward base trust
+            if self._trust_cmd < self.trust_cmd_base:
+                self._trust_cmd += self.slip_recover_rate * dt
+            else:
+                self._trust_cmd -= 0.1 * self.slip_recover_rate * dt  # gentle pull back to base
+
+        self._trust_cmd = _clamp(self._trust_cmd, self.trust_cmd_min, self.trust_cmd_max)
+
+    def _on_timer(self):
+        now = self.get_clock().now()
+        dt = (now - self._last_time).nanoseconds * 1e-9
+        if dt <= 0.0:
+            return
+        self._last_time = now
+
+        # Commanded twist (base frame)
+        cmd_vx = float(self._last_cmd.linear.x)
+        cmd_vy = float(self._last_cmd.linear.y)
+        cmd_wz = float(self._last_cmd.angular.z)
+
+        cmd_speed = math.hypot(cmd_vx, cmd_vy)
+
+        # Yaw update (IMU only if enabled)
+        if self.use_imu_yaw and self._imu_yaw is not None:
+            self.yaw = self._imu_yaw
+        else:
+            self.yaw += cmd_wz * dt
+
+        # --- IMU velocity integration (base frame) ---
+        # bias learning when "at rest" (cmd says near zero)
+        if self.zupt_enable and cmd_speed < self.zupt_cmd_speed_thresh:
+            # Assume true accel ~ 0 -> learn bias toward current measurement
+            aerr_x = self._imu_ax - self._bias_ax
+            aerr_y = self._imu_ay - self._bias_ay
+            self._bias_ax += self.bias_learn_rate * aerr_x * dt
+            self._bias_ay += self.bias_learn_rate * aerr_y * dt
+
+            # also softly damp IMU velocity toward 0 when "stopped"
+            self._v_imu_x *= max(0.0, 1.0 - 2.0 * dt)
+            self._v_imu_y *= max(0.0, 1.0 - 2.0 * dt)
+
+        ax = self._imu_ax - self._bias_ax
+        ay = self._imu_ay - self._bias_ay
+
+        self._v_imu_x += ax * dt
+        self._v_imu_y += ay * dt
+
+        # global decay to fight drift
+        if self.imu_vel_decay > 0.0:
+            decay = max(0.0, 1.0 - self.imu_vel_decay * dt)
+            self._v_imu_x *= decay
+            self._v_imu_y *= decay
+
+        accel_mag = math.hypot(ax, ay)
+        self._update_cmd_trust(dt, cmd_speed, accel_mag)
+
+        # --- Blend velocities ---
+        trust = self._trust_cmd
+        vx = trust * cmd_vx + (1.0 - trust) * self._v_imu_x
+        vy = trust * cmd_vy + (1.0 - trust) * self._v_imu_y
+
+        # clamp for sanity
+        spd = math.hypot(vx, vy)
+        if spd > self.max_speed > 0.0:
+            s = self.max_speed / spd
+            vx *= s
+            vy *= s
+
+        # --- Integrate position in odom frame ---
+        cy = math.cos(self.yaw)
+        sy = math.sin(self.yaw)
+        dx = (vx * cy - vy * sy) * dt
+        dy = (vx * sy + vy * cy) * dt
+        self.x += dx
+        self.y += dy
+
+        # Publish Odometry
+        odom = Odometry()
+        odom.header.stamp = now.to_msg()
+        odom.header.frame_id = self.odom_frame
+        odom.child_frame_id = self.base_frame
+        odom.pose.pose.position.x = self.x
+        odom.pose.pose.position.y = self.y
+        qx, qy, qz, qw = _quat_from_yaw(self.yaw)
+        odom.pose.pose.orientation.x = qx
+        odom.pose.pose.orientation.y = qy
+        odom.pose.pose.orientation.z = qz
+        odom.pose.pose.orientation.w = qw
+        odom.twist.twist.linear.x = vx
+        odom.twist.twist.linear.y = vy
+        odom.twist.twist.angular.z = cmd_wz
+
+        self._odom_pub.publish(odom)
+
+        # Publish TF
+        if self.publish_tf:
+            t = TransformStamped()
+            t.header.stamp = odom.header.stamp
+            t.header.frame_id = self.odom_frame
+            t.child_frame_id = self.base_frame
+            t.transform.translation.x = self.x
+            t.transform.translation.y = self.y
+            t.transform.translation.z = 0.0
+            t.transform.rotation.x = qx
+            t.transform.rotation.y = qy
+            t.transform.rotation.z = qz
+            t.transform.rotation.w = qw
+            self._tf_broadcaster.sendTransform(t)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = OpenLoopOdomNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
