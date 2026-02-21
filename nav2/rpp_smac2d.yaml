@@ -201,48 +201,64 @@ collision_monitor:
   ros__parameters:
     use_sim_time: false
 
-    # REQUIRED: list of source names (string_array)
-    observation_sources: ["scan"]
-
-    # Source definition for "scan"
-    scan:
-      type: "scan"                # LaserScan source
-      topic: "/scan"
-      min_height: 0.0
-      max_height: 2.0
-
-    # Minimal safety setup (keeps it from faulting)
-    base_frame_id: "base_link"
-    odom_frame_id: "odom"
+    base_frame_id: base_link
+    odom_frame_id: odom
     transform_tolerance: 0.2
 
-    # Polygons to monitor: one simple footprint polygon around robot
-    polygons: ["robot_footprint"]
-    robot_footprint:
-      type: "polygon"
-      action_type: "stop"         # stop when something enters polygon
-      min_points: 3
-      polygon:
-        points: [
-          [ 0.30,  0.25],
-          [ 0.30, -0.25],
-          [-0.30, -0.25],
-          [-0.30,  0.25]
-        ]
+    # pipeline: smoother -> collision_monitor -> drivetrain adapter
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel_nav_safe
+    state_topic: collision_monitor_state
 
-    # Optional: slowdown zone (uncomment if you want)
-    # polygons: ["slow_zone", "robot_footprint"]
-    # slow_zone:
-    #   type: "polygon"
-    #   action_type: "slowdown"
-    #   slowdown_ratio: 0.3
-    #   polygon:
-    #     points: [
-    #       [ 0.60,  0.45],
-    #       [ 0.60, -0.45],
-    #       [-0.40, -0.45],
-    #       [-0.40,  0.45]
-    #     ]
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+
+    polygons: [FootprintApproach]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: local_costmap/published_footprint
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 4
+      visualize: false
+      enabled: true
+
+    observation_sources: [scan]
+    scan:
+      type: "scan"
+      topic: /scan
+      min_height: 0.0
+      max_height: 2.0
+      enabled: true
+
+docking_server:
+  ros__parameters:
+    controller_frequency: 50.0
+    base_frame: "base_link"
+    fixed_frame: "odom"
+
+    # REQUIRED: plugin types list
+    dock_plugins: ['terralift_dock']
+
+    # One plugin definition (pick NonCharging to avoid battery/joint requirements)
+    terralift_dock:
+      plugin: 'opennav_docking::SimpleNonChargingDock'   # valid option per Nav2 docs
+      docking_threshold: 0.10
+      staging_x_offset: -0.5
+      use_external_detection_pose: false
+      use_battery_status: false
+      use_stall_detection: false
+
+    # REQUIRED: dock instances list
+    docks: ['home_dock']
+
+    home_dock:
+      type: 'terralift_dock'
+      frame: map
+      pose: [0.0, 0.0, 0.0]
+      id: '00000000-0000-0000-0000-000000000000'
 
 lifecycle_manager_navigation:
   ros__parameters:
@@ -257,3 +273,5 @@ lifecycle_manager_navigation:
       - velocity_smoother
       - local_costmap
       - global_costmap
+      - collision_monitor
+      - docking_server

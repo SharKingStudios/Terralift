@@ -36,6 +36,7 @@ def generate_launch_description():
             'map_frame': 'map',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
+            'publish_tf': True,
 
             # Sensor
             'scan_topic': '/scan',

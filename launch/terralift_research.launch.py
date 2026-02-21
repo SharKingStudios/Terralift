@@ -37,7 +37,7 @@ def generate_launch_description():
     laser_z = DeclareLaunchArgument('laser_z', default_value='0.2')
     laser_roll = DeclareLaunchArgument('laser_roll', default_value='0.0')
     laser_pitch = DeclareLaunchArgument('laser_pitch', default_value='0.0')
-    laser_yaw = DeclareLaunchArgument('laser_yaw', default_value='0.0')
+    laser_yaw = DeclareLaunchArgument('laser_yaw', default_value='3.141592653589793')
 
     imu_x = DeclareLaunchArgument('imu_x', default_value='0.0')
     imu_y = DeclareLaunchArgument('imu_y', default_value='0.0')
@@ -104,21 +104,39 @@ def generate_launch_description():
     )
 
     # Open-loop odometry for SLAM/Nav2 (no wheel encoders)
-    sensor_odom = Node(
+    open_loop_odom = Node(
         package='terralift',
-        executable='sensor_odom',
-        name='sensor_odom',
+        executable='open_loop_odom',
+        name='open_loop_odom',
         output='screen',
         parameters=[{
-            'slam_pose_topic': '/pose',
+            # Use whatever cmd_vel stream represents the robot’s true commanded motion
+            # If collision_monitor is active, /cmd_vel_nav_safe is ideal.
+            'cmd_vel_topic': '/cmd_vel_nav',
             'imu_topic': '/imu/data',
             'odom_topic': '/odom',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
-            'max_delta_m': 0.75,
-            'use_full_imu_quat': True,
+            'rate_hz': 50.0,
+            'publish_tf': True,
+            'use_imu_yaw': True,
         }],
     )
+    # sensor_odom = Node(
+    #     package='terralift',
+    #     executable='sensor_odom',
+    #     name='sensor_odom',
+    #     output='screen',
+    #     parameters=[{
+    #         'slam_pose_topic': '/pose',
+    #         'imu_topic': '/imu/data',
+    #         'odom_topic': '/odom',
+    #         'odom_frame': 'odom',
+    #         'base_frame': 'base_link',
+    #         'max_delta_m': 0.75,
+    #         'use_full_imu_quat': True,
+    #     }],
+    # )
 
     # Nav2 cmd_vel (m/s) -> drivetrain cmd_mecanum (-1..1)
     cmd_adapter = Node(
@@ -146,6 +164,19 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_slam')),
     )
 
+    slam_lifecycle_manager = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='slam_lifecycle_manager',
+        output='screen',
+        parameters=[{
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'autostart': True,
+            'node_names': ['slam_toolbox'],
+        }],
+        condition=IfCondition(LaunchConfiguration('use_slam')),
+    )
+
     # ----------- Nav2 (navigation only; SLAM provides /map + map->odom) -----------
     nav2_dir = get_package_share_directory('nav2_bringup')
 
@@ -169,6 +200,7 @@ def generate_launch_description():
             'rviz': 'False',   # avoid rviz on robot
             'use_collision_monitor': 'False',
             'collision_monitor': 'False',
+            'use_docking': 'False',
         }.items(),
     )
 
@@ -187,8 +219,9 @@ def generate_launch_description():
         drivetrain,
         base_to_laser_tf,
         base_to_imu_tf,
-        sensor_odom,
+        open_loop_odom,
         cmd_adapter,
         slam,
+        slam_lifecycle_manager,
         nav2_launch,
     ])
