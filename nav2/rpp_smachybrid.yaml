@@ -12,6 +12,8 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 20.0
+
+    # These keep controllers from dropping commands due to tiny values
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
@@ -28,19 +30,26 @@ controller_server:
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
-      xy_goal_tolerance: 0.05
-      yaw_goal_tolerance: 0.07
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.35   # radians
 
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       debug_visualizations: true
       publish_path: true
+      use_rotate_to_heading: false
 
+      # Optional: keep controller aligned with your global caps
+      desired_linear_vel: 0.6
+      max_angular_vel: 0.8
+
+      # Lookahead
       use_velocity_scaled_lookahead_dist: true
       lookahead_dist: 0.6
       max_lookahead_dist: 1.2
       min_lookahead_dist: 0.3
 
+      # Safety
       regulate_linear_velocity: true
       use_cost_regulated_linear_velocity_scaling: true
       cost_scaling_dist: 0.6
@@ -53,6 +62,8 @@ planner_server:
     planner_plugins: [GridBased]
     GridBased:
       plugin: "nav2_smac_planner/SmacPlannerHybrid"
+
+      # General
       tolerance: 0.5
       allow_unknown: false
       downsample_costmap: false
@@ -63,7 +74,7 @@ planner_server:
 
       # Omni robot
       motion_model_for_search: "OMNI"
-      angle_quantization_bins: 1
+      angle_quantization_bins: 72
       minimum_turning_radius: 0.0
 
       # Hybrid planner tuning (safe aisle behavior)
@@ -91,20 +102,20 @@ waypoint_follower:
 behavior_server:
   ros__parameters:
     use_sim_time: false
-    local_costmap_topic: local_costmap/costmap_raw
-    global_costmap_topic: global_costmap/costmap_raw
+    local_costmap_topic: local_costmap/costmap
+    global_costmap_topic: global_costmap/costmap
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
     behavior_plugins: [spin, backup, drive_on_heading, wait]
     spin:
-      plugin: "nav2_behaviors/Spin"
+      plugin: "nav2_behaviors::Spin"
     backup:
-      plugin: "nav2_behaviors/BackUp"
+      plugin: "nav2_behaviors::BackUp"
     drive_on_heading:
-      plugin: "nav2_behaviors/DriveOnHeading"
+      plugin: "nav2_behaviors::DriveOnHeading"
     wait:
-      plugin: "nav2_behaviors/Wait"
+      plugin: "nav2_behaviors::Wait"
 
 velocity_smoother:
   ros__parameters:
@@ -112,29 +123,34 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.6, 0.6, 1.8]
-    min_velocity: [-0.6, -0.6, -1.8]
-    max_accel: [1.0, 1.0, 3.0]
-    max_decel: [-1.0, -1.0, -3.0]
+    max_velocity: [0.6, 0.6, 0.8]
+    min_velocity: [-0.6, -0.6, -0.8]
+    max_accel: [1.0, 1.0, 1.2]
+    max_decel: [-1.0, -1.0, -1.2]
     odom_topic: /odom
 
 local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: false
+
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 6.0
-      height: 6.0
+      width: 6
+      height: 6
       resolution: 0.05
+
       update_frequency: 10.0
       publish_frequency: 5.0
       transform_tolerance: 0.2
       always_send_full_costmap: true
+
       footprint_padding: 0.02
       robot_radius: 0.25
+
       plugins: [obstacle_layer, inflation_layer]
+
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         observation_sources: scan
@@ -148,6 +164,7 @@ local_costmap:
           raytrace_max_range: 12.0
           obstacle_min_range: 0.15
           obstacle_max_range: 8.0
+
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.55
@@ -156,21 +173,29 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
+      width: 12
+      height: 12
       use_sim_time: false
+
       global_frame: map
       robot_base_frame: base_link
       resolution: 0.05
       track_unknown_space: true
+
       update_frequency: 5.0
       publish_frequency: 2.0
       transform_tolerance: 0.2
       always_send_full_costmap: true
+
       footprint_padding: 0.02
       robot_radius: 0.25
+
       plugins: [static_layer, obstacle_layer, inflation_layer]
+
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
+
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         observation_sources: scan
@@ -184,10 +209,71 @@ global_costmap:
           raytrace_max_range: 12.0
           obstacle_min_range: 0.15
           obstacle_max_range: 8.0
+
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.6
         cost_scaling_factor: 4.0
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+
+    base_frame_id: base_link
+    odom_frame_id: odom
+    transform_tolerance: 0.2
+
+    # pipeline: smoother -> collision_monitor -> drivetrain adapter
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel_nav_safe
+    state_topic: collision_monitor_state
+
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+
+    polygons: [FootprintApproach]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: local_costmap/published_footprint
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 4
+      visualize: false
+      enabled: true
+
+    observation_sources: [scan]
+    scan:
+      type: "scan"
+      topic: /scan
+      min_height: 0.0
+      max_height: 2.0
+      enabled: true
+
+docking_server:
+  ros__parameters:
+    controller_frequency: 50.0
+    base_frame: "base_link"
+    fixed_frame: "odom"
+
+    dock_plugins: ['terralift_dock']
+
+    terralift_dock:
+      plugin: 'opennav_docking::SimpleNonChargingDock'
+      docking_threshold: 0.10
+      staging_x_offset: -0.5
+      use_external_detection_pose: false
+      use_battery_status: false
+      use_stall_detection: false
+
+    docks: ['home_dock']
+
+    home_dock:
+      type: 'terralift_dock'
+      frame: map
+      pose: [0.0, 0.0, 0.0]
+      id: '00000000-0000-0000-0000-000000000000'
 
 lifecycle_manager_navigation:
   ros__parameters:
@@ -202,3 +288,5 @@ lifecycle_manager_navigation:
       - velocity_smoother
       - local_costmap
       - global_costmap
+      - collision_monitor
+      - docking_server
