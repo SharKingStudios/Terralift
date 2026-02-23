@@ -20,6 +20,11 @@ controller_server:
 
     progress_checker_plugin: progress_checker
     goal_checker_plugins: [general_goal_checker]
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
+      xy_goal_tolerance: 0.15 # Meters
+      yaw_goal_tolerance: 0.35 # Degrees: 0.35 ~ 20 degrees
     controller_plugins: [FollowPath]
 
     progress_checker:
@@ -27,21 +32,11 @@ controller_server:
       required_movement_radius: 0.2
       movement_time_allowance: 10.0
 
-    general_goal_checker:
-      plugin: "nav2_controller::SimpleGoalChecker"
-      stateful: true
-      xy_goal_tolerance: 0.15
-      yaw_goal_tolerance: 0.35   # radians
-
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       debug_visualizations: true
       publish_path: true
       use_rotate_to_heading: false
-
-      # Optional: keep controller aligned with your global caps
-      desired_linear_vel: 0.6
-      max_angular_vel: 0.8
 
       # Lookahead
       use_velocity_scaled_lookahead_dist: true
@@ -64,7 +59,7 @@ planner_server:
       plugin: "nav2_smac_planner/SmacPlannerHybrid"
 
       # General
-      tolerance: 0.5
+      tolerance: 0.25
       allow_unknown: false
       downsample_costmap: false
       downsampling_factor: 1
@@ -72,12 +67,15 @@ planner_server:
       max_on_approach_iterations: 1000
       max_planning_time: 1.5
 
-      # Omni robot
+      # Omni robot (mecanum)
       motion_model_for_search: "OMNI"
-      angle_quantization_bins: 72
+      angle_quantization_bins: 1
       minimum_turning_radius: 0.0
 
-      # Hybrid planner tuning (safe aisle behavior)
+      # Bias away from inflated regions in tight aisles
+      cost_travel_multiplier: 2.0
+
+      # Hybrid planner tuning (keep your placeholders)
       analytic_expansion_ratio: 3.5
       analytic_expansion_max_length: 3.0
       analytic_expansion_max_cost: 200.0
@@ -257,16 +255,19 @@ docking_server:
     base_frame: "base_link"
     fixed_frame: "odom"
 
+    # REQUIRED: plugin types list
     dock_plugins: ['terralift_dock']
 
+    # One plugin definition (pick NonCharging to avoid battery/joint requirements)
     terralift_dock:
-      plugin: 'opennav_docking::SimpleNonChargingDock'
+      plugin: 'opennav_docking::SimpleNonChargingDock'   # valid option per Nav2 docs
       docking_threshold: 0.10
       staging_x_offset: -0.5
       use_external_detection_pose: false
       use_battery_status: false
       use_stall_detection: false
 
+    # REQUIRED: dock instances list
     docks: ['home_dock']
 
     home_dock:

@@ -12,12 +12,19 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 20.0
+
+    # These keep controllers from dropping commands due to tiny values
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
 
     progress_checker_plugin: progress_checker
     goal_checker_plugins: [general_goal_checker]
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
+      xy_goal_tolerance: 0.15 # Meters
+      yaw_goal_tolerance: 0.35 # Degrees: 0.35 ~ 20 degrees
     controller_plugins: [FollowPath]
 
     progress_checker:
@@ -25,15 +32,12 @@ controller_server:
       required_movement_radius: 0.2
       movement_time_allowance: 10.0
 
-    general_goal_checker:
-      plugin: "nav2_controller::SimpleGoalChecker"
-      stateful: true
-      xy_goal_tolerance: 0.15
-      yaw_goal_tolerance: 0.35   # radians
-
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: false
+
+      # Holonomic / mecanum
+      holonomic_robot: true
 
       # Match your global speed caps
       min_vel_x: -0.6
@@ -41,13 +45,11 @@ controller_server:
       min_vel_y: -0.6
       max_vel_y: 0.6
       max_vel_theta: 0.8
-
       min_speed_xy: 0.0
       max_speed_xy: 0.6
       min_speed_theta: 0.0
 
-      holonomic_robot: true
-
+      # Match your global accel caps
       acc_lim_x: 1.0
       acc_lim_y: 1.0
       acc_lim_theta: 1.2
@@ -83,7 +85,8 @@ planner_server:
     GridBased:
       plugin: "nav2_smac_planner/SmacPlannerHybrid"
 
-      tolerance: 0.5
+      # General
+      tolerance: 0.25
       allow_unknown: false
       downsample_costmap: false
       downsampling_factor: 1
@@ -91,10 +94,15 @@ planner_server:
       max_on_approach_iterations: 1000
       max_planning_time: 1.5
 
+      # Omni robot (mecanum)
       motion_model_for_search: "OMNI"
-      angle_quantization_bins: 72
+      angle_quantization_bins: 1
       minimum_turning_radius: 0.0
 
+      # Bias away from inflated regions in tight aisles
+      cost_travel_multiplier: 2.0
+
+      # Hybrid planner tuning (keep your placeholders)
       analytic_expansion_ratio: 3.5
       analytic_expansion_max_length: 3.0
       analytic_expansion_max_cost: 200.0
@@ -240,6 +248,7 @@ collision_monitor:
     odom_frame_id: odom
     transform_tolerance: 0.2
 
+    # pipeline: smoother -> collision_monitor -> drivetrain adapter
     cmd_vel_in_topic: cmd_vel_smoothed
     cmd_vel_out_topic: cmd_vel_nav_safe
     state_topic: collision_monitor_state
@@ -273,16 +282,19 @@ docking_server:
     base_frame: "base_link"
     fixed_frame: "odom"
 
+    # REQUIRED: plugin types list
     dock_plugins: ['terralift_dock']
 
+    # One plugin definition (pick NonCharging to avoid battery/joint requirements)
     terralift_dock:
-      plugin: 'opennav_docking::SimpleNonChargingDock'
+      plugin: 'opennav_docking::SimpleNonChargingDock'   # valid option per Nav2 docs
       docking_threshold: 0.10
       staging_x_offset: -0.5
       use_external_detection_pose: false
       use_battery_status: false
       use_stall_detection: false
 
+    # REQUIRED: dock instances list
     docks: ['home_dock']
 
     home_dock:
