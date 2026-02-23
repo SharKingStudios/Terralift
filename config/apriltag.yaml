@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    image_transport: raw
+    family: 36h11
+    size: 0.16
+    max_hamming: 0
+    pose_estimation_method: "pnp"
+
+    # Make sure TF is actually published and uses the expected parent frame.
+    publish_tf: true
+    camera_frame: "camera_optical_frame"
+
+    detector:
+      threads: 2
+      decimate: 2.0
+      blur: 0.0
+      refine: true
+      sharpening: 0.25
+      debug: false
+
+    # Publish TF child frames exactly named tag_1, tag_2, ...
+    tag:
+      ids:    [1]
+      frames: ["tag_1"]
+      sizes:  [0.16]
