@@ -19,7 +19,7 @@ class MecanumDriveNode(Node):
 
         # ---------------- Parameters ----------------
         self.declare_parameter('pwm_hz', 2000)
-        self.declare_parameter('max_duty', 50.0)
+        self.declare_parameter('max_duty', 100.0)
         self.declare_parameter('simulate', SIM_DEFAULT)
 
         self.simulate = self.get_parameter('simulate').value
@@ -30,8 +30,20 @@ class MecanumDriveNode(Node):
         self.wheels = {
             'fl': {'dir': 17, 'pwm': 27},
             'fr': {'dir': 22, 'pwm': 10},
-            'rl': {'dir': 9, 'pwm': 11},
-            'rr': {'dir': 5, 'pwm': 13},
+            'rl': {'dir': 5, 'pwm': 13},
+            'rr': {'dir': 9, 'pwm': 11},
+        }
+
+        self.declare_parameter('invert_fl', False)
+        self.declare_parameter('invert_fr', True)
+        self.declare_parameter('invert_rl', True)
+        self.declare_parameter('invert_rr', False)
+
+        self.invert = {
+            'fl': -1.0 if self.get_parameter('invert_fl').value else 1.0,
+            'fr': -1.0 if self.get_parameter('invert_fr').value else 1.0,
+            'rl': -1.0 if self.get_parameter('invert_rl').value else 1.0,
+            'rr': -1.0 if self.get_parameter('invert_rr').value else 1.0,
         }
 
         self.pwms = {}
@@ -73,6 +85,9 @@ class MecanumDriveNode(Node):
             'rl': vx + vy - wz,
             'rr': vx - vy + wz,
         }
+
+        for k in speeds:
+            speeds[k] *= self.invert[k]
 
         # Normalize wheel speeds
         max_mag = max(abs(v) for v in speeds.values())

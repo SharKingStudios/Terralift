@@ -62,6 +62,10 @@ setup(
 
             # Research / bringup helpers
             'open_loop_odom = terralift.open_loop_odom_node:main',
+            'sensor_odom = terralift.sensor_odom_node:main',
+            'yuyv_to_mono = terralift.yuyv_to_mono_node:main',
+            'tag_localizer = terralift.tag_localizer:main',
+            'tag_pose_to_odom_reset = terralift.tag_pose_to_odom_reset:main',
             'cmd_vel_to_mecanum = terralift.cmd_vel_to_mecanum_node:main',
             'rosbag_node = terralift.rosbag_node:main',
         ],

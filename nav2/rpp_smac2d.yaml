@@ -20,6 +20,11 @@ controller_server:
 
     progress_checker_plugin: progress_checker
     goal_checker_plugins: [general_goal_checker]
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
+      xy_goal_tolerance: 0.15 # Meters
+      yaw_goal_tolerance: 0.35 # Degrees: 0.35 ~ 20 degrees
     controller_plugins: [FollowPath]
 
     progress_checker:
@@ -27,16 +32,11 @@ controller_server:
       required_movement_radius: 0.2
       movement_time_allowance: 10.0
 
-    general_goal_checker:
-      plugin: "nav2_controller::SimpleGoalChecker"
-      stateful: true
-      xy_goal_tolerance: 0.05
-      yaw_goal_tolerance: 0.07
-
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       debug_visualizations: true
       publish_path: true
+      use_rotate_to_heading: false
 
       # Lookahead
       use_velocity_scaled_lookahead_dist: true
@@ -56,7 +56,7 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: [GridBased]
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"
+      plugin: "nav2_smac_planner::SmacPlanner2D"
 
       # General
       tolerance: 0.25
@@ -84,20 +84,20 @@ waypoint_follower:
 behavior_server:
   ros__parameters:
     use_sim_time: false
-    local_costmap_topic: local_costmap/costmap_raw
-    global_costmap_topic: global_costmap/costmap_raw
+    local_costmap_topic: local_costmap/costmap
+    global_costmap_topic: global_costmap/costmap
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
     behavior_plugins: [spin, backup, drive_on_heading, wait]
     spin:
-      plugin: "nav2_behaviors/Spin"
+      plugin: "nav2_behaviors::Spin"
     backup:
-      plugin: "nav2_behaviors/BackUp"
+      plugin: "nav2_behaviors::BackUp"
     drive_on_heading:
-      plugin: "nav2_behaviors/DriveOnHeading"
+      plugin: "nav2_behaviors::DriveOnHeading"
     wait:
-      plugin: "nav2_behaviors/Wait"
+      plugin: "nav2_behaviors::Wait"
 
 velocity_smoother:
   ros__parameters:
@@ -105,10 +105,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.6, 0.6, 1.8]
-    min_velocity: [-0.6, -0.6, -1.8]
-    max_accel: [1.0, 1.0, 3.0]
-    max_decel: [-1.0, -1.0, -3.0]
+    max_velocity: [0.6, 0.6, 0.8]
+    min_velocity: [-0.6, -0.6, -0.8]
+    max_accel: [1.0, 1.0, 1.2]
+    max_decel: [-1.0, -1.0, -1.2]
     odom_topic: /odom
 
 local_costmap:
@@ -119,8 +119,8 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 6.0
-      height: 6.0
+      width: 6
+      height: 6
       resolution: 0.05
 
       update_frequency: 10.0
@@ -155,6 +155,8 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
+      width: 12
+      height: 12
       use_sim_time: false
 
       global_frame: map
@@ -195,6 +197,69 @@ global_costmap:
         inflation_radius: 0.6
         cost_scaling_factor: 4.0
 
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+
+    base_frame_id: base_link
+    odom_frame_id: odom
+    transform_tolerance: 0.2
+
+    # pipeline: smoother -> collision_monitor -> drivetrain adapter
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel_nav_safe
+    state_topic: collision_monitor_state
+
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+
+    polygons: [FootprintApproach]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: local_costmap/published_footprint
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 4
+      visualize: false
+      enabled: true
+
+    observation_sources: [scan]
+    scan:
+      type: "scan"
+      topic: /scan
+      min_height: 0.0
+      max_height: 2.0
+      enabled: true
+
+docking_server:
+  ros__parameters:
+    controller_frequency: 50.0
+    base_frame: "base_link"
+    fixed_frame: "odom"
+
+    # REQUIRED: plugin types list
+    dock_plugins: ['terralift_dock']
+
+    # One plugin definition (pick NonCharging to avoid battery/joint requirements)
+    terralift_dock:
+      plugin: 'opennav_docking::SimpleNonChargingDock'   # valid option per Nav2 docs
+      docking_threshold: 0.10
+      staging_x_offset: -0.5
+      use_external_detection_pose: false
+      use_battery_status: false
+      use_stall_detection: false
+
+    # REQUIRED: dock instances list
+    docks: ['home_dock']
+
+    home_dock:
+      type: 'terralift_dock'
+      frame: map
+      pose: [0.0, 0.0, 0.0]
+      id: '00000000-0000-0000-0000-000000000000'
+
 lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false
@@ -208,3 +273,5 @@ lifecycle_manager_navigation:
       - velocity_smoother
       - local_costmap
       - global_costmap
+      - collision_monitor
+      - docking_server
