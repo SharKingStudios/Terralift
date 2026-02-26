@@ -65,8 +65,12 @@ controller_server:
       angular_granularity: 0.025
       transform_tolerance: 0.2
 
-      critics: [RotateToGoal, GoalAlign, PathAlign, PathDist, GoalDist, Obstacle]
-      Obstacle.scale: 0.02
+      critics: [RotateToGoal, GoalAlign, PathAlign, PathDist, GoalDist, ObstacleFootprint]
+
+      ObstacleFootprint:
+        plugin: "dwb_critics::ObstacleFootprintCritic"
+      ObstacleFootprint.scale: 0.02
+      
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
       GoalAlign.scale: 24.0
@@ -83,7 +87,7 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: [GridBased]
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlannerHybrid"
+      plugin: "nav2_smac_planner::SmacPlannerHybrid"
 
       # General
       tolerance: 0.25
@@ -282,12 +286,10 @@ docking_server:
     base_frame: "base_link"
     fixed_frame: "odom"
 
-    # REQUIRED: plugin types list
     dock_plugins: ['terralift_dock']
 
-    # One plugin definition (pick NonCharging to avoid battery/joint requirements)
     terralift_dock:
-      plugin: 'opennav_docking::SimpleNonChargingDock'   # valid option per Nav2 docs
+      plugin: 'opennav_docking::SimpleNonChargingDock'
       docking_threshold: 0.10
       staging_x_offset: -0.5
       use_external_detection_pose: false

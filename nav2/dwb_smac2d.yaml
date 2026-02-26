@@ -65,8 +65,12 @@ controller_server:
       angular_granularity: 0.025
       transform_tolerance: 0.2
 
-      critics: [RotateToGoal, GoalAlign, PathAlign, PathDist, GoalDist, Obstacle]
-      Obstacle.scale: 0.02
+      critics: [RotateToGoal, GoalAlign, PathAlign, PathDist, GoalDist, ObstacleFootprint]
+
+      ObstacleFootprint:
+        plugin: "dwb_critics::ObstacleFootprintCritic"
+      ObstacleFootprint.scale: 0.02
+
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
       GoalAlign.scale: 24.0
@@ -232,7 +236,6 @@ collision_monitor:
     odom_frame_id: odom
     transform_tolerance: 0.2
 
-    # pipeline: smoother -> collision_monitor -> drivetrain adapter
     cmd_vel_in_topic: cmd_vel_smoothed
     cmd_vel_out_topic: cmd_vel_nav_safe
     state_topic: collision_monitor_state
@@ -266,19 +269,16 @@ docking_server:
     base_frame: "base_link"
     fixed_frame: "odom"
 
-    # REQUIRED: plugin types list
     dock_plugins: ['terralift_dock']
 
-    # One plugin definition (pick NonCharging to avoid battery/joint requirements)
     terralift_dock:
-      plugin: 'opennav_docking::SimpleNonChargingDock'   # valid option per Nav2 docs
+      plugin: 'opennav_docking::SimpleNonChargingDock'
       docking_threshold: 0.10
       staging_x_offset: -0.5
       use_external_detection_pose: false
       use_battery_status: false
       use_stall_detection: false
 
-    # REQUIRED: dock instances list
     docks: ['home_dock']
 
     home_dock:
