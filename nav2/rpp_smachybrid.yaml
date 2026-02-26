@@ -68,9 +68,9 @@ planner_server:
       max_planning_time: 1.5
 
       # Omni robot (mecanum)
-      motion_model_for_search: "OMNI"
-      angle_quantization_bins: 1
-      minimum_turning_radius: 0.0
+      motion_model_for_search: "STATE_LATTICE"
+      angle_quantization_bins: 72
+      minimum_turning_radius: 0.05
 
       # Bias away from inflated regions in tight aisles
       cost_travel_multiplier: 2.0
