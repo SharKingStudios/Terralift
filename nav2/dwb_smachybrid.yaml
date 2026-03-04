@@ -101,7 +101,7 @@ planner_server:
       # Omni robot (mecanum)
       motion_model_for_search: "REEDS_SHEPP"
       minimum_turning_radius: 0.25
-      angle_quantization_bins: 72
+      angle_quantization_bins: 48
 
       # Bias away from inflated regions in tight aisles
       cost_travel_multiplier: 2.0

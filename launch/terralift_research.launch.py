@@ -276,7 +276,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_slam')),
     )
 
-    # ✅ CRITICAL FIX: lifecycle manager must target the NODE NAME, not the executable name.
     # Your node is /slam_toolbox (see `ros2 node list`), so manage "slam_toolbox".
     slam_lifecycle_manager = Node(
         package='nav2_lifecycle_manager',
@@ -286,6 +285,7 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': LaunchConfiguration('use_sim_time'),
             'autostart': True,
+            'bond_timeout': 15.0,
             'node_names': ['slam_toolbox'],
         }],
         condition=IfCondition(LaunchConfiguration('use_slam')),
