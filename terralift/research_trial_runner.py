@@ -24,7 +24,7 @@ import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import rclpy
 from rclpy.action import ActionClient
@@ -33,6 +33,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Twist
+from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import CollisionMonitorState
 from std_msgs.msg import String
@@ -87,6 +88,12 @@ class ResearchTrialRunner(Node):
         self.declare_parameter('collision_monitor_state_topic', '/collision_monitor_state')
         self.declare_parameter('cmd_vel_smoothed_topic', '/cmd_vel_smoothed')
         self.declare_parameter('cmd_vel_safe_topic', '/cmd_vel_nav_safe')
+
+        # Wait until bt_navigator is fully ACTIVE before sending the goal
+        self.declare_parameter('bt_navigator_state_service', '/bt_navigator/get_state')
+        self.declare_parameter('wait_for_nav_active_timeout_sec', 30.0)
+        self.declare_parameter('nav_active_poll_period_sec', 0.5)
+
         self.declare_parameter('record_topics', [
             '/tf',
             '/tf_static',
@@ -136,6 +143,9 @@ class ResearchTrialRunner(Node):
         self.collision_monitor_state_topic = str(self.get_parameter('collision_monitor_state_topic').value)
         self.cmd_vel_smoothed_topic = str(self.get_parameter('cmd_vel_smoothed_topic').value)
         self.cmd_vel_safe_topic = str(self.get_parameter('cmd_vel_safe_topic').value)
+        self.bt_navigator_state_service = str(self.get_parameter('bt_navigator_state_service').value)
+        self.wait_for_nav_active_timeout_sec = float(self.get_parameter('wait_for_nav_active_timeout_sec').value)
+        self.nav_active_poll_period_sec = float(self.get_parameter('nav_active_poll_period_sec').value)
         self.record_topics = [str(t) for t in self.get_parameter('record_topics').value]
 
         self.bag_base_dir.mkdir(parents=True, exist_ok=True)
@@ -146,10 +156,14 @@ class ResearchTrialRunner(Node):
         self.bag_process: Optional[subprocess.Popen] = None
         self.goal_handle = None
         self.result_future = None
-        self.result_sent = False
         self.finished = False
         self.start_timer = None
         self.timeout_timer = None
+        self.nav_state_timer = None
+        self.nav_state_future = None
+        self.nav_wait_start_time = None
+        self.last_bt_state_label: Optional[str] = None
+
         self.last_collision_state: Optional[Tuple[int, str]] = None
         self.last_cmd_smoothed = Twist()
         self.last_cmd_safe = Twist()
@@ -189,6 +203,7 @@ class ResearchTrialRunner(Node):
         self.create_subscription(Twist, self.cmd_vel_safe_topic, self._cmd_safe_cb, 10)
 
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.bt_state_client = self.create_client(GetState, self.bt_navigator_state_service)
 
         # ----------------------------
         # Trial startup
@@ -230,6 +245,79 @@ class ResearchTrialRunner(Node):
             self._finish_trial(TrialResult(False, 'navigate_to_pose action server unavailable'))
             return
 
+        # Wait until bt_navigator lifecycle node is ACTIVE before sending the goal
+        self.nav_wait_start_time = self.get_clock().now()
+        self._publish_event('waiting_for_nav2_active', {
+            'service': self.bt_navigator_state_service,
+            'timeout_sec': self.wait_for_nav_active_timeout_sec,
+        })
+
+        self.nav_state_timer = self.create_timer(
+            self.nav_active_poll_period_sec,
+            self._poll_bt_navigator_active,
+        )
+
+    def _poll_bt_navigator_active(self) -> None:
+        if self.finished:
+            return
+
+        if self.nav_wait_start_time is None:
+            self.nav_wait_start_time = self.get_clock().now()
+
+        elapsed = (self.get_clock().now() - self.nav_wait_start_time).nanoseconds * 1e-9
+        if elapsed > self.wait_for_nav_active_timeout_sec:
+            if self.nav_state_timer is not None:
+                self.nav_state_timer.cancel()
+                self.nav_state_timer = None
+            self._finish_trial(
+                TrialResult(
+                    False,
+                    f'bt_navigator did not become active within {self.wait_for_nav_active_timeout_sec:.1f}s',
+                )
+            )
+            return
+
+        if not self.bt_state_client.service_is_ready():
+            return
+
+        if self.nav_state_future is not None and not self.nav_state_future.done():
+            return
+
+        req = GetState.Request()
+        self.nav_state_future = self.bt_state_client.call_async(req)
+        self.nav_state_future.add_done_callback(self._bt_state_response_cb)
+
+    def _bt_state_response_cb(self, future) -> None:
+        if self.finished:
+            return
+
+        try:
+            response = future.result()
+        except Exception as exc:
+            self.get_logger().warn(f'Failed to query bt_navigator state: {exc}')
+            return
+
+        label = str(response.current_state.label).strip().lower()
+        state_id = int(response.current_state.id)
+
+        if label != self.last_bt_state_label:
+            self.last_bt_state_label = label
+            self._publish_event('bt_navigator_state', {
+                'state_id': state_id,
+                'state_label': label,
+            })
+
+        if label != 'active':
+            return
+
+        if self.nav_state_timer is not None:
+            self.nav_state_timer.cancel()
+            self.nav_state_timer = None
+
+        self.get_logger().info('bt_navigator is ACTIVE; sending goal')
+        self._send_navigation_goal()
+
+    def _send_navigation_goal(self) -> None:
         goal = self._build_goal_pose()
         self.goal_pub.publish(goal)
         self._publish_event('goal_published', self._pose_dict(goal))
@@ -300,9 +388,9 @@ class ResearchTrialRunner(Node):
 
         if self.goal_handle is not None:
             cancel_future = self.goal_handle.cancel_goal_async()
-            cancel_future.add_done_callback(lambda _f: self._finish_trial(
-                TrialResult(False, 'goal_timeout_cancelled')
-            ))
+            cancel_future.add_done_callback(
+                lambda _f: self._finish_trial(TrialResult(False, 'goal_timeout_cancelled'))
+            )
         else:
             self._finish_trial(TrialResult(False, 'goal_timeout_before_accept'))
 
@@ -311,9 +399,17 @@ class ResearchTrialRunner(Node):
             return
         self.finished = True
 
+        if self.start_timer is not None:
+            self.start_timer.cancel()
+            self.start_timer = None
+
         if self.timeout_timer is not None:
             self.timeout_timer.cancel()
             self.timeout_timer = None
+
+        if self.nav_state_timer is not None:
+            self.nav_state_timer.cancel()
+            self.nav_state_timer = None
 
         if result.success:
             self._publish_event('trial_complete', {
@@ -403,6 +499,9 @@ class ResearchTrialRunner(Node):
             'auto_close': self.auto_close,
             'goal_timeout_sec': self.goal_timeout_sec,
             'startup_delay_sec': self.startup_delay_sec,
+            'bt_navigator_state_service': self.bt_navigator_state_service,
+            'wait_for_nav_active_timeout_sec': self.wait_for_nav_active_timeout_sec,
+            'nav_active_poll_period_sec': self.nav_active_poll_period_sec,
         }
         if final_result is not None:
             metadata['final_result'] = final_result
