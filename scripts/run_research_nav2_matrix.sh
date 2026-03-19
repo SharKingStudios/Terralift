@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 # -----------------------------
 # Edit these variables for your experiment
@@ -49,6 +49,8 @@ if [[ ! -f "$WORKSPACE_SETUP" ]]; then
   exit 1
 fi
 
+# Source the workspace without nounset, since ROS/colcon setup scripts
+# may reference unset trace variables.
 # shellcheck disable=SC1090
 source "$WORKSPACE_SETUP"
 
