@@ -20,6 +20,9 @@ REPEATS_PER_CONFIG=1
 # Small delay after each run finishes, before prompting you
 SLEEP_BETWEEN_RUNS_SEC=1
 
+# If true, wait for you to press Enter before starting the first run
+WAIT_FOR_ENTER_BEFORE_FIRST_RUN="true"
+
 # If true, wait for you to press Enter before starting the next run
 WAIT_FOR_ENTER_BETWEEN_RUNS="true"
 
@@ -44,10 +47,16 @@ GOAL_Y="0.0"
 GOAL_YAW="0.0"
 CMD_VEL_INPUT_TOPIC="/cmd_vel_nav_safe"
 
+# Directory for per-run ROS launch logs
+LOG_DIR="$HOME/terralift_run_logs"
+
 if [[ ! -f "$WORKSPACE_SETUP" ]]; then
   echo "Workspace setup file not found: $WORKSPACE_SETUP" >&2
   exit 1
 fi
+
+mkdir -p "$LOG_DIR"
+mkdir -p "$BAG_BASE_DIR"
 
 # Source the workspace without nounset, since ROS/colcon setup scripts
 # may reference unset trace variables.
@@ -57,15 +66,25 @@ source "$WORKSPACE_SETUP"
 TOTAL_RUNS=$(( ${#CONFIGS[@]} * REPEATS_PER_CONFIG ))
 RUN_INDEX=0
 
+if [[ "$WAIT_FOR_ENTER_BEFORE_FIRST_RUN" == "true" ]]; then
+  echo "Place the robot at the start position."
+  read -r -p "Press Enter to start the experiment..."
+  echo
+fi
+
 for config in "${CONFIGS[@]}"; do
   for ((trial=1; trial<=REPEATS_PER_CONFIG; trial++)); do
     RUN_INDEX=$((RUN_INDEX + 1))
+
+    RUN_STAMP="$(date +%Y%m%d_%H%M%S)"
+    RUN_LOG="$LOG_DIR/${config%.yaml}_trial${trial}_${RUN_STAMP}.log"
 
     echo "============================================================"
     echo "Run $RUN_INDEX / $TOTAL_RUNS"
     echo "Running config: $config"
     echo "Repeat: $trial / $REPEATS_PER_CONFIG"
     echo "Goal: ($GOAL_X, $GOAL_Y, yaw=$GOAL_YAW) in frame $GOAL_FRAME"
+    echo "ROS launch log: $RUN_LOG"
     echo "============================================================"
 
     ros2 launch "$PACKAGE_NAME" "$LAUNCH_FILE" \
@@ -89,10 +108,15 @@ for config in "${CONFIGS[@]}"; do
       goal_x:="$GOAL_X" \
       goal_y:="$GOAL_Y" \
       goal_yaw:="$GOAL_YAW" \
-      cmd_vel_input_topic:="$CMD_VEL_INPUT_TOPIC"
+      cmd_vel_input_topic:="$CMD_VEL_INPUT_TOPIC" \
+      >"$RUN_LOG" 2>&1
+
+    LAUNCH_EXIT_CODE=$?
 
     echo
     echo "Finished config: $config repeat $trial"
+    echo "Launch exit code: $LAUNCH_EXIT_CODE"
+    echo "ROS launch log: $RUN_LOG"
 
     if (( RUN_INDEX < TOTAL_RUNS )); then
       sleep "$SLEEP_BETWEEN_RUNS_SEC"
@@ -108,3 +132,4 @@ done
 
 echo
 echo "All experiment runs completed."
+echo "Logs saved in: $LOG_DIR"
