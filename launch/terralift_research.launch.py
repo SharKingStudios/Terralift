@@ -3,12 +3,15 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
 
 
 def generate_launch_description():
@@ -24,6 +27,24 @@ def generate_launch_description():
     )
 
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
+    auto_close = DeclareLaunchArgument('auto_close', default_value='true')
+    record_bag = DeclareLaunchArgument('record_bag', default_value='true')
+    record_all_topics = DeclareLaunchArgument('record_all_topics', default_value='false')
+    bag_base_dir = DeclareLaunchArgument('bag_base_dir', default_value='~/terralift_bags')
+    trial_prefix = DeclareLaunchArgument('trial_prefix', default_value='trial')
+    environment_id = DeclareLaunchArgument('environment_id', default_value='default_env')
+    trial_notes = DeclareLaunchArgument('trial_notes', default_value='')
+    parameter_set_id = DeclareLaunchArgument('parameter_set_id', default_value='')
+    nav2_version = DeclareLaunchArgument('nav2_version', default_value='unknown')
+    robot_model = DeclareLaunchArgument('robot_model', default_value='terralift')
+    robot_firmware_driver_versions = DeclareLaunchArgument('robot_firmware_driver_versions', default_value='unknown')
+    startup_delay_sec = DeclareLaunchArgument('startup_delay_sec', default_value='4.0')
+    goal_timeout_sec = DeclareLaunchArgument('goal_timeout_sec', default_value='90.0')
+    goal_frame = DeclareLaunchArgument('goal_frame', default_value='map')
+    goal_x = DeclareLaunchArgument('goal_x', default_value='1.0')
+    goal_y = DeclareLaunchArgument('goal_y', default_value='0.0')
+    goal_yaw = DeclareLaunchArgument('goal_yaw', default_value='0.0')
+    cmd_vel_input_topic = DeclareLaunchArgument('cmd_vel_input_topic', default_value='/cmd_vel_nav_safe')
 
     # TF offsets
     laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
@@ -91,8 +112,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    # --- TFs (positional args) ---
-
     base_to_laser_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -155,7 +174,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_apriltags')),
     )
 
-    # Optional alias so anything expecting "camera" doesn't create a split TF tree
     camera_optical_to_camera_alias_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -169,7 +187,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_apriltags')),
     )
 
-    # Camera
     camera = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -191,7 +208,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_apriltags')),
     )
 
-    # AprilTag
     apriltag = Node(
         package='apriltag_ros',
         executable='apriltag_node',
@@ -206,7 +222,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_apriltags')),
     )
 
-    # Tag snapper
     tag_snapper = Node(
         package='terralift',
         executable='tag_pose_to_odom_reset',
@@ -227,7 +242,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_apriltags')),
     )
 
-    # Open-loop odom
     open_loop_odom = Node(
         package='terralift',
         executable='open_loop_odom',
@@ -258,7 +272,7 @@ def generate_launch_description():
         name='cmd_vel_to_mecanum',
         output='screen',
         parameters=[{
-            'input_topic': '/cmd_vel_nav',
+            'input_topic': LaunchConfiguration('cmd_vel_input_topic'),
             'output_topic': '/cmd_mecanum',
             'max_vx_mps': LaunchConfiguration('max_vx_mps'),
             'max_vy_mps': LaunchConfiguration('max_vy_mps'),
@@ -266,7 +280,6 @@ def generate_launch_description():
         }],
     )
 
-    # SLAM Toolbox include
     slam = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_share, 'launch', 'map_generation.launch.py')),
         launch_arguments={
@@ -276,7 +289,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_slam')),
     )
 
-    # Your node is /slam_toolbox (see `ros2 node list`), so manage "slam_toolbox".
     slam_lifecycle_manager = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -291,7 +303,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_slam')),
     )
 
-    # Nav2
     nav2_dir = get_package_share_directory('nav2_bringup')
     nav2_params_file = PathJoinSubstitution([
         FindPackageShare('terralift'),
@@ -314,8 +325,49 @@ def generate_launch_description():
         }.items(),
     )
 
+    research_trial_runner = Node(
+        package='terralift',
+        executable='research_trial_runner',
+        name='research_trial_runner',
+        output='screen',
+        parameters=[{
+            'record_bag': LaunchConfiguration('record_bag'),
+            'record_all_topics': LaunchConfiguration('record_all_topics'),
+            'bag_base_dir': LaunchConfiguration('bag_base_dir'),
+            'trial_prefix': LaunchConfiguration('trial_prefix'),
+            'environment_id': LaunchConfiguration('environment_id'),
+            'trial_notes': LaunchConfiguration('trial_notes'),
+            'nav2_params_name': LaunchConfiguration('nav2_params'),
+            'parameter_set_id': LaunchConfiguration('parameter_set_id'),
+            'nav2_version': LaunchConfiguration('nav2_version'),
+            'robot_model': LaunchConfiguration('robot_model'),
+            'robot_firmware_driver_versions': LaunchConfiguration('robot_firmware_driver_versions'),
+            'use_apriltags': LaunchConfiguration('use_apriltags'),
+            'use_slam': LaunchConfiguration('use_slam'),
+            'auto_close': LaunchConfiguration('auto_close'),
+            'startup_delay_sec': LaunchConfiguration('startup_delay_sec'),
+            'goal_timeout_sec': LaunchConfiguration('goal_timeout_sec'),
+            'goal_frame': LaunchConfiguration('goal_frame'),
+            'goal_x': LaunchConfiguration('goal_x'),
+            'goal_y': LaunchConfiguration('goal_y'),
+            'goal_yaw': LaunchConfiguration('goal_yaw'),
+        }],
+    )
+
+    shutdown_on_trial_runner_exit = RegisterEventHandler(
+        OnProcessExit(
+            target_action=research_trial_runner,
+            on_exit=[EmitEvent(event=Shutdown(reason='research trial runner exited'))],
+        )
+    )
+
     return LaunchDescription([
         use_sim_time, autostart, nav2_params, use_slam,
+        auto_close, record_bag, record_all_topics, bag_base_dir,
+        trial_prefix, environment_id, trial_notes, parameter_set_id,
+        nav2_version, robot_model, robot_firmware_driver_versions,
+        startup_delay_sec, goal_timeout_sec, goal_frame, goal_x, goal_y, goal_yaw,
+        cmd_vel_input_topic,
         laser_x, laser_y, laser_z, laser_roll, laser_pitch, laser_yaw,
         imu_x, imu_y, imu_z, imu_roll, imu_pitch, imu_yaw,
         max_vx, max_vy, max_wz,
@@ -324,22 +376,19 @@ def generate_launch_description():
         apriltag_params, tag_map_file,
 
         imu, rplidar, drivetrain,
-
         base_to_laser_tf,
         base_to_imu_tf,
         base_to_camera_link_tf,
         camera_link_to_optical_tf,
         camera_optical_to_camera_alias_tf,
-
         camera,
         apriltag,
         tag_snapper,
-
         open_loop_odom,
         cmd_adapter,
-
         slam,
         slam_lifecycle_manager,
-
         nav2_launch,
+        research_trial_runner,
+        shutdown_on_trial_runner_exit,
     ])

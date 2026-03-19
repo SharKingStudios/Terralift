@@ -27,6 +27,10 @@ setup(
         # Nav2 parameter files
         ('share/' + package_name + '/nav2',
             glob('nav2/*.yaml')),
+
+        # Helper shell scripts
+        ('share/' + package_name + '/scripts',
+            glob('scripts/*.sh')),
     ],
 
     install_requires=['setuptools'],
@@ -68,6 +72,7 @@ setup(
             'tag_pose_to_odom_reset = terralift.tag_pose_to_odom_reset:main',
             'cmd_vel_to_mecanum = terralift.cmd_vel_to_mecanum_node:main',
             'rosbag_node = terralift.rosbag_node:main',
+            'research_trial_runner = terralift.research_trial_runner:main',
         ],
     },
 )
