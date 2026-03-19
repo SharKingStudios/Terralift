@@ -118,6 +118,37 @@ for config in "${CONFIGS[@]}"; do
     echo "Launch exit code: $LAUNCH_EXIT_CODE"
     echo "ROS launch log: $RUN_LOG"
 
+    LATEST_METADATA="$(ls -1t "$BAG_BASE_DIR"/*/trial_metadata.json 2>/dev/null | head -n 1 || true)"
+
+    if [[ -n "$LATEST_METADATA" ]]; then
+      echo "Trial metadata: $LATEST_METADATA"
+      python3 - <<'PY' "$LATEST_METADATA"
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+
+trial_id = data.get("trial_id", "unknown")
+result = data.get("final_result", {})
+success = result.get("success", None)
+reason = result.get("reason", "")
+error_code = result.get("error_code", "")
+error_msg = result.get("error_msg", "")
+
+status_text = "SUCCESS" if success is True else "FAILURE" if success is False else "UNKNOWN"
+
+print(f"Trial ID: {trial_id}")
+print(f"Trial result: {status_text}")
+print(f"Reason: {reason}")
+print(f"Nav2 error_code: {error_code}")
+print(f"Nav2 error_msg: {error_msg}")
+PY
+    else
+      echo "No trial metadata file found."
+    fi
+
     if (( RUN_INDEX < TOTAL_RUNS )); then
       sleep "$SLEEP_BETWEEN_RUNS_SEC"
 
