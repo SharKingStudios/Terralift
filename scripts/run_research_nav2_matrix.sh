@@ -16,7 +16,12 @@ CONFIGS=(
 )
 
 REPEATS_PER_CONFIG=1
-SLEEP_BETWEEN_RUNS_SEC=3
+
+# Small delay after each run finishes, before prompting you
+SLEEP_BETWEEN_RUNS_SEC=1
+
+# If true, wait for you to press Enter before starting the next run
+WAIT_FOR_ENTER_BETWEEN_RUNS="true"
 
 AUTO_CLOSE="true"
 RECORD_BAG="true"
@@ -47,9 +52,15 @@ fi
 # shellcheck disable=SC1090
 source "$WORKSPACE_SETUP"
 
+TOTAL_RUNS=$(( ${#CONFIGS[@]} * REPEATS_PER_CONFIG ))
+RUN_INDEX=0
+
 for config in "${CONFIGS[@]}"; do
   for ((trial=1; trial<=REPEATS_PER_CONFIG; trial++)); do
+    RUN_INDEX=$((RUN_INDEX + 1))
+
     echo "============================================================"
+    echo "Run $RUN_INDEX / $TOTAL_RUNS"
     echo "Running config: $config"
     echo "Repeat: $trial / $REPEATS_PER_CONFIG"
     echo "Goal: ($GOAL_X, $GOAL_Y, yaw=$GOAL_YAW) in frame $GOAL_FRAME"
@@ -78,7 +89,20 @@ for config in "${CONFIGS[@]}"; do
       goal_yaw:="$GOAL_YAW" \
       cmd_vel_input_topic:="$CMD_VEL_INPUT_TOPIC"
 
+    echo
     echo "Finished config: $config repeat $trial"
-    sleep "$SLEEP_BETWEEN_RUNS_SEC"
+
+    if (( RUN_INDEX < TOTAL_RUNS )); then
+      sleep "$SLEEP_BETWEEN_RUNS_SEC"
+
+      if [[ "$WAIT_FOR_ENTER_BETWEEN_RUNS" == "true" ]]; then
+        echo
+        echo "Move the robot back to the start position."
+        read -r -p "Press Enter to start the next run..."
+      fi
+    fi
   done
 done
+
+echo
+echo "All experiment runs completed."
