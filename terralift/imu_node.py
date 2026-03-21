@@ -70,6 +70,12 @@ class BNO055ImuNode(Node):
         # If we haven't gotten a fresh IMU sample in this many seconds, warn
         self.declare_parameter('stale_warn_s', 0.5)
 
+        # Published covariance estimates used by downstream filters. These are
+        # intentionally conservative for a low-cost IMU on a mobile robot.
+        self.declare_parameter('orientation_stddev_deg', 12.0)
+        self.declare_parameter('angular_velocity_stddev', 0.10)
+        self.declare_parameter('linear_acceleration_stddev', 0.35)
+
         # Gyro units from the library:
         #  - 'rad' (recommended default for adafruit_bno055.gyro in most installs)
         #  - 'deg'
@@ -80,6 +86,9 @@ class BNO055ImuNode(Node):
         self.read_hz = float(self.get_parameter('read_hz').value)
         self.simulate = bool(self.get_parameter('simulate').value)
         self.stale_warn_s = float(self.get_parameter('stale_warn_s').value)
+        self.orientation_stddev_deg = float(self.get_parameter('orientation_stddev_deg').value)
+        self.angular_velocity_stddev = float(self.get_parameter('angular_velocity_stddev').value)
+        self.linear_acceleration_stddev = float(self.get_parameter('linear_acceleration_stddev').value)
         self.gyro_units = str(self.get_parameter('gyro_units').value).strip().lower()
 
         self.pub = self.create_publisher(Imu, '/imu/data', 10)
@@ -216,6 +225,20 @@ class BNO055ImuNode(Node):
             msg.linear_acceleration.x = accel[0]
             msg.linear_acceleration.y = accel[1]
             msg.linear_acceleration.z = accel[2]
+
+        # Conservative covariances so filters do not over-trust this IMU.
+        ori_var = math.radians(self.orientation_stddev_deg) ** 2
+        gyro_var = self.angular_velocity_stddev ** 2
+        accel_var = self.linear_acceleration_stddev ** 2
+        msg.orientation_covariance = [ori_var, 0.0, 0.0,
+                                      0.0, ori_var, 0.0,
+                                      0.0, 0.0, ori_var]
+        msg.angular_velocity_covariance = [gyro_var, 0.0, 0.0,
+                                           0.0, gyro_var, 0.0,
+                                           0.0, 0.0, gyro_var]
+        msg.linear_acceleration_covariance = [accel_var, 0.0, 0.0,
+                                              0.0, accel_var, 0.0,
+                                              0.0, 0.0, accel_var]
 
         self.pub.publish(msg)
 

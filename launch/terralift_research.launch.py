@@ -16,6 +16,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('terralift')
+    ekf_config = os.path.join(pkg_share, 'config', 'ekf_imu.yaml')
 
     use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='false')
     autostart = DeclareLaunchArgument('autostart', default_value='true')
@@ -45,6 +46,7 @@ def generate_launch_description():
     goal_y = DeclareLaunchArgument('goal_y', default_value='0.0')
     goal_yaw = DeclareLaunchArgument('goal_yaw', default_value='0.0')
     cmd_vel_input_topic = DeclareLaunchArgument('cmd_vel_input_topic', default_value='/cmd_vel_nav_safe')
+    odom_cmd_topic = DeclareLaunchArgument('odom_cmd_topic', default_value='/cmd_vel_nav_safe')
 
     # TF offsets
     laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
@@ -249,21 +251,38 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'imu_topic': '/imu/data',
-            'odom_topic': '/odom',
+            'cmd_vel_topic': LaunchConfiguration('odom_cmd_topic'),
+            'odom_topic': '/open_loop_odom',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
             'rate_hz': 50.0,
-            'publish_tf': True,
+            'publish_tf': False,
             'reset_pose_topic': '/tag_reset_pose',
-            'stationary_accel_thresh': 0.15,
-            'stationary_gyro_thresh': 0.10,
-            'stationary_hold_time': 0.20,
-            'bias_learn_rate': 0.6,
-            'zupt_vel_damp': 6.0,
-            'vel_decay': 0.15,
-            'max_speed': 2.5,
-            'require_imu_yaw': True,
+            'cmd_timeout': 0.35,
+            'vel_response_tau': 0.18,
+            'idle_velocity_decay': 4.0,
+            'max_vx_mps': LaunchConfiguration('max_vx_mps'),
+            'max_vy_mps': LaunchConfiguration('max_vy_mps'),
+            'max_wz_rps': LaunchConfiguration('max_wz_rps'),
+            'use_imu_orientation': True,
+            'use_imu_gyro': True,
+            'imu_yaw_blend_gain': 2.0,
+            'imu_wz_lpf_gain': 12.0,
+            'require_imu_yaw': False,
         }],
+    )
+
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[ekf_config, {
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        }],
+        remappings=[
+            ('odometry/filtered', '/odom'),
+        ],
     )
 
     cmd_adapter = Node(
@@ -367,7 +386,7 @@ def generate_launch_description():
         trial_prefix, environment_id, trial_notes, parameter_set_id,
         nav2_version, robot_model, robot_firmware_driver_versions,
         startup_delay_sec, goal_timeout_sec, goal_frame, goal_x, goal_y, goal_yaw,
-        cmd_vel_input_topic,
+        cmd_vel_input_topic, odom_cmd_topic,
         laser_x, laser_y, laser_z, laser_roll, laser_pitch, laser_yaw,
         imu_x, imu_y, imu_z, imu_roll, imu_pitch, imu_yaw,
         max_vx, max_vy, max_wz,
@@ -385,6 +404,7 @@ def generate_launch_description():
         apriltag,
         tag_snapper,
         open_loop_odom,
+        ekf_node,
         cmd_adapter,
         slam,
         slam_lifecycle_manager,
