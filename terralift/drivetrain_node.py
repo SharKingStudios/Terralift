@@ -19,7 +19,7 @@ class MecanumDriveNode(Node):
 
         # ---------------- Parameters ----------------
         self.declare_parameter('pwm_hz', 2000)
-        self.declare_parameter('max_duty', 80.0)
+        self.declare_parameter('max_duty', 100.0)
         self.declare_parameter('simulate', SIM_DEFAULT)
 
         self.simulate = self.get_parameter('simulate').value
