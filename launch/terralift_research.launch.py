@@ -64,9 +64,9 @@ def generate_launch_description():
     imu_yaw   = DeclareLaunchArgument('imu_yaw',   default_value='0.0')
 
     # Cmd scaling
-    max_vx = DeclareLaunchArgument('max_vx_mps', default_value='0.45')
-    max_vy = DeclareLaunchArgument('max_vy_mps', default_value='0.45')
-    max_wz = DeclareLaunchArgument('max_wz_rps', default_value='1.4')
+    max_vx = DeclareLaunchArgument('max_vx_mps', default_value='1.22')
+    max_vy = DeclareLaunchArgument('max_vy_mps', default_value='1.22')
+    max_wz = DeclareLaunchArgument('max_wz_rps', default_value='3.14')
 
     # AprilTags / Camera
     use_apriltags = DeclareLaunchArgument('use_apriltags', default_value='true')
