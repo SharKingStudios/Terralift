@@ -9,7 +9,7 @@ SIM_DEFAULT = False
 try:
     from rpi_ws281x import PixelStrip, Color
 except Exception:
-    SIM_DEFAULT = True
+    SIM_DEFAULT = False
     PixelStrip = None
     Color = None
 

@@ -33,9 +33,9 @@ class CmdVelToMecanum(Node):
         self.output_topic = self.declare_parameter('output_topic', '/cmd_mecanum').value
 
         # These should match your real robot's achievable speeds.
-        self.max_vx = float(self.declare_parameter('max_vx_mps', 0.6).value)
-        self.max_vy = float(self.declare_parameter('max_vy_mps', 0.6).value)
-        self.max_wz = float(self.declare_parameter('max_wz_rps', 1.8).value)
+        self.max_vx = float(self.declare_parameter('max_vx_mps', 1.22).value)
+        self.max_vy = float(self.declare_parameter('max_vy_mps', 1.22).value)
+        self.max_wz = float(self.declare_parameter('max_wz_rps', 3.14).value)
 
         self.pub = self.create_publisher(Twist, self.output_topic, 10)
 

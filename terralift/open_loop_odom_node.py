@@ -56,9 +56,9 @@ class OpenLoopOdom(Node):
         self.cmd_timeout = float(self.declare_parameter('cmd_timeout', 0.35).value)
         self.vel_response_tau = float(self.declare_parameter('vel_response_tau', 0.18).value)
         self.idle_velocity_decay = float(self.declare_parameter('idle_velocity_decay', 4.0).value)
-        self.max_vx = float(self.declare_parameter('max_vx_mps', 0.6).value)
-        self.max_vy = float(self.declare_parameter('max_vy_mps', 0.6).value)
-        self.max_wz = float(self.declare_parameter('max_wz_rps', 1.5).value)
+        self.max_vx = float(self.declare_parameter('max_vx_mps', 1.22).value)
+        self.max_vy = float(self.declare_parameter('max_vy_mps', 1.22).value)
+        self.max_wz = float(self.declare_parameter('max_wz_rps', 3.14).value)
 
         # Heading stabilization
         self.use_imu_orientation = bool(self.declare_parameter('use_imu_orientation', True).value)
