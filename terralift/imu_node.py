@@ -11,6 +11,9 @@ from sensor_msgs.msg import Imu
 SIM_DEFAULT = False
 IMPORT_ERROR = ""
 
+DEBUG_QUAT = False
+DEBUG_LOG_PERIOD_S = 0.5
+
 try:
     import board
     import busio
@@ -27,22 +30,17 @@ def _deg2rad(x: float) -> float:
     return x * math.pi / 180.0
 
 
-def _quat_guess_and_normalize(q_raw: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
+def _quat_bno_to_ros(q_raw: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
     """
-    Adafruit BNO055 libs have historically returned quaternion in either:
-      - (w, x, y, z)
-      - (x, y, z, w)
+    Adafruit CircuitPython BNO055 returns quaternion in Bosch register order:
+      (w, x, y, z)
 
-    Guess ordering, then normalize. Returns (x, y, z, w).
+    ROS expects:
+      (x, y, z, w)
+
+    Return normalized ROS-order quaternion.
     """
-    a, b, c, d = [float(v) for v in q_raw]
-
-    if abs(a) >= abs(d):
-        # Assume (w, x, y, z)
-        w, x, y, z = a, b, c, d
-    else:
-        # Assume (x, y, z, w)
-        x, y, z, w = a, b, c, d
+    w, x, y, z = [float(v) for v in q_raw]
 
     n = math.sqrt(x * x + y * y + z * z + w * w)
     if n <= 1e-9:
@@ -50,6 +48,26 @@ def _quat_guess_and_normalize(q_raw: Tuple[float, float, float, float]) -> Tuple
 
     inv = 1.0 / n
     return (x * inv, y * inv, z * inv, w * inv)
+
+
+def _yaw_deg_from_ros_quat(q_ros: Tuple[float, float, float, float]) -> float:
+    """
+    q_ros is (x, y, z, w)
+    Returns yaw in degrees in [-180, 180].
+    """
+    x, y, z, w = q_ros
+
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+    yaw_deg = math.degrees(yaw)
+
+    while yaw_deg > 180.0:
+        yaw_deg -= 360.0
+    while yaw_deg < -180.0:
+        yaw_deg += 360.0
+
+    return yaw_deg
 
 
 class BNO055ImuNode(Node):
@@ -66,21 +84,20 @@ class BNO055ImuNode(Node):
         self.declare_parameter('stale_warn_s', 0.5)
 
         # Stop publishing IMU messages entirely if older than this.
-        # This is important so robot_localization can timeout the IMU
-        # instead of being fed stale data.
+        # This allows robot_localization to timeout the IMU cleanly.
         self.declare_parameter('stale_stop_publish_s', 0.2)
 
         # Reinitialize the BNO after this many consecutive read failures
         self.declare_parameter('reset_after_consecutive_errors', 5)
 
-        # Gyro units from the library:
+        # Gyro units from library:
         #  - 'rad' for rad/s
         #  - 'deg' for deg/s
         self.declare_parameter('gyro_units', 'rad')
 
-        # Covariance tuning.
-        # We trust yaw and yaw rate strongly.
-        # We do not trust roll/pitch or accel for this planar robot.
+        # Covariance tuning:
+        # Trust yaw and yaw rate strongly.
+        # Do not trust roll/pitch or accel for this planar robot.
         self.declare_parameter('yaw_stddev_deg', 1.5)
         self.declare_parameter('yaw_rate_stddev', 0.05)
         self.declare_parameter('roll_pitch_covariance', 99999.0)
@@ -120,8 +137,12 @@ class BNO055ImuNode(Node):
         # ---------------- Cached state ----------------
         self._lock = threading.Lock()
         self._last_sample_time = 0.0
-        self._q: Optional[Tuple[float, float, float, float]] = None  # (x, y, z, w)
-        self._gyro: Optional[Tuple[float, float, float]] = None      # rad/s
+
+        # Cached values
+        self._q_ros: Optional[Tuple[float, float, float, float]] = None   # (x, y, z, w)
+        self._q_raw_wxyz: Optional[Tuple[float, float, float, float]] = None
+        self._gyro: Optional[Tuple[float, float, float]] = None           # rad/s
+        self._calib: Optional[Tuple[int, int, int, int]] = None           # sys, gyro, accel, mag
 
         # ---------------- Threading ----------------
         self._stop = False
@@ -132,6 +153,9 @@ class BNO055ImuNode(Node):
         self._warn_ctr = 0
         self._warn_every = max(1, int(round(self.publish_hz)))
         self.timer = self.create_timer(period, self._publish_cached)
+
+        if DEBUG_QUAT:
+            self._debug_timer = self.create_timer(DEBUG_LOG_PERIOD_S, self._debug_log)
 
     # ------------------------------------------------
 
@@ -154,9 +178,9 @@ class BNO055ImuNode(Node):
         Continuously read the IMU in a background thread and cache results.
 
         Important:
-        - Only read quaternion and gyro.
-        - Do not read linear acceleration here.
-        - At 5 kHz Pi I2C, keeping bus load low matters.
+        - Read quaternion and gyro only.
+        - Do not read linear acceleration.
+        - At a very slow Pi I2C bus, keeping bus load down matters.
         """
         dt = 1.0 / max(1.0, self.read_hz)
 
@@ -164,23 +188,27 @@ class BNO055ImuNode(Node):
             if self.simulate or self.bno is None:
                 if self.simulate:
                     with self._lock:
-                        self._q = (0.0, 0.0, 0.0, 1.0)
+                        self._q_ros = (0.0, 0.0, 0.0, 1.0)
+                        self._q_raw_wxyz = (1.0, 0.0, 0.0, 0.0)
                         self._gyro = (0.0, 0.0, 0.0)
+                        self._calib = (0, 0, 0, 0)
                         self._last_sample_time = time.time()
                 else:
-                    # Try to recover the sensor periodically
                     self._init_sensor()
 
                 time.sleep(dt)
                 continue
 
             try:
-                q_out = None
+                q_ros_out = None
+                q_raw_out = None
                 gyro_out = None
+                calib_out = None
 
                 q_raw = self.bno.quaternion
                 if q_raw and len(q_raw) == 4 and all(v is not None for v in q_raw):
-                    q_out = _quat_guess_and_normalize(q_raw)
+                    q_raw_out = tuple(float(v) for v in q_raw)
+                    q_ros_out = _quat_bno_to_ros(q_raw_out)
 
                 gyro = getattr(self.bno, 'gyro', None)
                 if gyro and len(gyro) == 3 and all(v is not None for v in gyro):
@@ -189,12 +217,20 @@ class BNO055ImuNode(Node):
                         gx, gy, gz = _deg2rad(gx), _deg2rad(gy), _deg2rad(gz)
                     gyro_out = (gx, gy, gz)
 
-                if q_out is not None or gyro_out is not None:
+                calib = getattr(self.bno, 'calibration_status', None)
+                if calib and len(calib) == 4 and all(v is not None for v in calib):
+                    calib_out = tuple(int(v) for v in calib)
+
+                if q_ros_out is not None or gyro_out is not None:
                     with self._lock:
-                        if q_out is not None:
-                            self._q = q_out
+                        if q_ros_out is not None:
+                            self._q_ros = q_ros_out
+                        if q_raw_out is not None:
+                            self._q_raw_wxyz = q_raw_out
                         if gyro_out is not None:
                             self._gyro = gyro_out
+                        if calib_out is not None:
+                            self._calib = calib_out
                         self._last_sample_time = time.time()
                     self._consecutive_errors = 0
 
@@ -220,7 +256,7 @@ class BNO055ImuNode(Node):
         now_s = time.time()
         with self._lock:
             age = now_s - self._last_sample_time if self._last_sample_time > 0.0 else 1e9
-            q = self._q
+            q_ros = self._q_ros
             gyro = self._gyro
 
         self._warn_ctr += 1
@@ -237,13 +273,13 @@ class BNO055ImuNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
 
-        # Orientation:
-        # We trust yaw strongly, but do not trust roll/pitch for this robot.
-        if q is not None:
-            msg.orientation.x = q[0]
-            msg.orientation.y = q[1]
-            msg.orientation.z = q[2]
-            msg.orientation.w = q[3]
+        # Orientation: trust yaw strongly, do not trust roll/pitch for this robot
+        if q_ros is not None:
+            msg.orientation.x = q_ros[0]
+            msg.orientation.y = q_ros[1]
+            msg.orientation.z = q_ros[2]
+            msg.orientation.w = q_ros[3]
+
             yaw_var = math.radians(self.yaw_stddev_deg) ** 2
             msg.orientation_covariance = [
                 self.roll_pitch_covariance, 0.0, 0.0,
@@ -252,16 +288,18 @@ class BNO055ImuNode(Node):
             ]
         else:
             msg.orientation.w = 1.0
-            msg.orientation_covariance = [-1.0, 0.0, 0.0,
-                                          0.0, 0.0, 0.0,
-                                          0.0, 0.0, 0.0]
+            msg.orientation_covariance = [
+                -1.0, 0.0, 0.0,
+                0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0
+            ]
 
-        # Angular velocity:
-        # Trust z heavily. x/y are not useful for this planar platform.
+        # Angular velocity: trust z strongly, x/y not useful here
         if gyro is not None:
             msg.angular_velocity.x = gyro[0]
             msg.angular_velocity.y = gyro[1]
             msg.angular_velocity.z = gyro[2]
+
             yaw_rate_var = self.yaw_rate_stddev ** 2
             msg.angular_velocity_covariance = [
                 self.angular_velocity_xy_covariance, 0.0, 0.0,
@@ -269,16 +307,46 @@ class BNO055ImuNode(Node):
                 0.0, 0.0, yaw_rate_var
             ]
         else:
-            msg.angular_velocity_covariance = [-1.0, 0.0, 0.0,
-                                               0.0, 0.0, 0.0,
-                                               0.0, 0.0, 0.0]
+            msg.angular_velocity_covariance = [
+                -1.0, 0.0, 0.0,
+                0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0
+            ]
 
-        # Do not publish linear acceleration as a usable measurement.
-        msg.linear_acceleration_covariance = [-1.0, 0.0, 0.0,
-                                              0.0, 0.0, 0.0,
-                                              0.0, 0.0, 0.0]
+        # Do not provide linear acceleration to downstream filters
+        msg.linear_acceleration_covariance = [
+            -1.0, 0.0, 0.0,
+            0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0
+        ]
 
         self.pub.publish(msg)
+
+    def _debug_log(self):
+        now_s = time.time()
+        with self._lock:
+            age = now_s - self._last_sample_time if self._last_sample_time > 0.0 else 1e9
+            q_raw = self._q_raw_wxyz
+            q_ros = self._q_ros
+            gyro = self._gyro
+            calib = self._calib
+
+        if q_ros is not None:
+            yaw_deg = _yaw_deg_from_ros_quat(q_ros)
+        else:
+            yaw_deg = float('nan')
+
+        gyro_z = gyro[2] if gyro is not None else float('nan')
+
+        self.get_logger().info(
+            "IMU DEBUG | "
+            f"age={age:.3f}s | "
+            f"raw_wxyz={q_raw} | "
+            f"ros_xyzw={q_ros} | "
+            f"yaw_deg={yaw_deg:.2f} | "
+            f"gyro_z={gyro_z:.4f} | "
+            f"calib={calib}"
+        )
 
     def destroy_node(self):
         self._stop = True
