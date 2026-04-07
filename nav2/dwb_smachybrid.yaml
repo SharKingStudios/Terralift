@@ -42,12 +42,12 @@ controller_server:
       holonomic_robot: true
 
       min_vel_x: -0.35
-      max_vel_x: 0.35
+      max_vel_x: 0.75
       min_vel_y: -0.25
-      max_vel_y: 0.25
-      max_vel_theta: 0.7
+      max_vel_y: 0.75
+      max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.40
+      max_speed_xy: 0.75
       min_speed_theta: 0.0
 
       acc_lim_x: 0.7
@@ -170,8 +170,8 @@ velocity_smoother:
     smoothing_frequency: 15.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.40, 0.25, 0.7]
-    min_velocity: [-0.35, -0.25, -0.7]
+    max_velocity: [0.75, 0.75, 1.0]
+    min_velocity: [-0.75, -0.75, -1.0]
     max_accel: [0.7, 0.6, 1.0]
     max_decel: [-0.9, -0.8, -1.2]
     odom_topic: /odom

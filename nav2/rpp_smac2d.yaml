@@ -39,10 +39,10 @@ controller_server:
 
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      max_linear_vel: 0.30
+      max_linear_vel: 0.75
       min_linear_vel: -0.20
-      max_angular_vel: 0.9
-      min_angular_vel: -0.9
+      max_angular_vel: 1.0
+      min_angular_vel: -1.0
       max_linear_accel: 0.7
       max_linear_decel: -0.9
       max_angular_accel: 1.2
@@ -134,8 +134,8 @@ velocity_smoother:
     smoothing_frequency: 12.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.30, 0.20, 0.9]
-    min_velocity: [-0.20, -0.20, -0.9]
+    max_velocity: [0.75, 0.75, 1.0]
+    min_velocity: [-0.75, -0.75, -1.0]
     max_accel: [0.7, 0.6, 1.2]
     max_decel: [-0.9, -0.8, -1.4]
     odom_topic: /odom
