@@ -3,15 +3,12 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessExit
-from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-
 
 
 def generate_launch_description():
@@ -28,74 +25,62 @@ def generate_launch_description():
     )
 
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
-    auto_close = DeclareLaunchArgument('auto_close', default_value='true')
-    record_bag = DeclareLaunchArgument('record_bag', default_value='true')
-    record_all_topics = DeclareLaunchArgument('record_all_topics', default_value='false')
-    bag_base_dir = DeclareLaunchArgument('bag_base_dir', default_value='~/terralift_bags')
-    trial_prefix = DeclareLaunchArgument('trial_prefix', default_value='trial')
-    environment_id = DeclareLaunchArgument('environment_id', default_value='default_env')
-    trial_notes = DeclareLaunchArgument('trial_notes', default_value='')
-    parameter_set_id = DeclareLaunchArgument('parameter_set_id', default_value='')
-    nav2_version = DeclareLaunchArgument('nav2_version', default_value='unknown')
-    robot_model = DeclareLaunchArgument('robot_model', default_value='terralift')
-    robot_firmware_driver_versions = DeclareLaunchArgument('robot_firmware_driver_versions', default_value='unknown')
-    startup_delay_sec = DeclareLaunchArgument('startup_delay_sec', default_value='4.0')
-    goal_timeout_sec = DeclareLaunchArgument('goal_timeout_sec', default_value='90.0')
-    goal_frame = DeclareLaunchArgument('goal_frame', default_value='map')
-    goal_x = DeclareLaunchArgument('goal_x', default_value='1.0')
-    goal_y = DeclareLaunchArgument('goal_y', default_value='0.0')
-    goal_yaw = DeclareLaunchArgument('goal_yaw', default_value='0.0')
-    cmd_vel_input_topic = DeclareLaunchArgument('cmd_vel_input_topic', default_value='/cmd_vel_nav_safe')
-    odom_cmd_topic = DeclareLaunchArgument('odom_cmd_topic', default_value='/cmd_vel_nav_safe')
-
-    # TF offsets
-    laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
-    laser_y = DeclareLaunchArgument('laser_y', default_value='0.0')
-    laser_z = DeclareLaunchArgument('laser_z', default_value='0.09')
-    laser_roll  = DeclareLaunchArgument('laser_roll',  default_value='0.0')
-    laser_pitch = DeclareLaunchArgument('laser_pitch', default_value='0.0')
-    laser_yaw   = DeclareLaunchArgument('laser_yaw',   default_value='3.141592653589793')
-
-    imu_x = DeclareLaunchArgument('imu_x', default_value='0.0')
-    imu_y = DeclareLaunchArgument('imu_y', default_value='0.0')
-    imu_z = DeclareLaunchArgument('imu_z', default_value='0.0')
-    imu_roll  = DeclareLaunchArgument('imu_roll',  default_value='0.0')
-    imu_pitch = DeclareLaunchArgument('imu_pitch', default_value='0.0')
-    imu_yaw   = DeclareLaunchArgument('imu_yaw',   default_value='0.0')
-
-    # Cmd scaling
-    max_vx = DeclareLaunchArgument('max_vx_mps', default_value='1.22')
-    max_vy = DeclareLaunchArgument('max_vy_mps', default_value='1.22')
-    max_wz = DeclareLaunchArgument('max_wz_rps', default_value='3.14')
-
-    # AprilTags / Camera
     use_apriltags = DeclareLaunchArgument('use_apriltags', default_value='true')
     camera_device = DeclareLaunchArgument('camera_device', default_value='/dev/video0')
-
     camera_info_url = DeclareLaunchArgument(
         'camera_info_url',
         default_value='package://terralift/config/ost.yaml'
     )
 
-    # base_link -> camera_link (physical mount pose)
+    joy_topic = DeclareLaunchArgument('joy_topic', default_value='/joy')
+    nav_cmd_topic = DeclareLaunchArgument('nav_cmd_topic', default_value='/cmd_vel_nav_safe')
+    teleop_cmd_topic = DeclareLaunchArgument('teleop_cmd_topic', default_value='/cmd_vel_teleop')
+    drive_cmd_topic = DeclareLaunchArgument('drive_cmd_topic', default_value='/cmd_vel_demo_drive')
+
+    max_vx = DeclareLaunchArgument('max_vx_mps', default_value='1.22')
+    max_vy = DeclareLaunchArgument('max_vy_mps', default_value='1.22')
+    max_wz = DeclareLaunchArgument('max_wz_rps', default_value='3.14')
+
+    laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
+    laser_y = DeclareLaunchArgument('laser_y', default_value='0.0')
+    laser_z = DeclareLaunchArgument('laser_z', default_value='0.09')
+    laser_roll = DeclareLaunchArgument('laser_roll', default_value='0.0')
+    laser_pitch = DeclareLaunchArgument('laser_pitch', default_value='0.0')
+    laser_yaw = DeclareLaunchArgument('laser_yaw', default_value='3.141592653589793')
+
+    imu_x = DeclareLaunchArgument('imu_x', default_value='0.0')
+    imu_y = DeclareLaunchArgument('imu_y', default_value='0.0')
+    imu_z = DeclareLaunchArgument('imu_z', default_value='0.0')
+    imu_roll = DeclareLaunchArgument('imu_roll', default_value='0.0')
+    imu_pitch = DeclareLaunchArgument('imu_pitch', default_value='0.0')
+    imu_yaw = DeclareLaunchArgument('imu_yaw', default_value='0.0')
+
     cam_x = DeclareLaunchArgument('cam_x', default_value='-0.16')
     cam_y = DeclareLaunchArgument('cam_y', default_value='0.0')
     cam_z = DeclareLaunchArgument('cam_z', default_value='0.025')
-    cam_roll  = DeclareLaunchArgument('cam_roll',  default_value='3.141592653589793')
+    cam_roll = DeclareLaunchArgument('cam_roll', default_value='3.141592653589793')
     cam_pitch = DeclareLaunchArgument('cam_pitch', default_value='-0.26179939')
-    cam_yaw   = DeclareLaunchArgument('cam_yaw',   default_value='3.141592653589793')
+    cam_yaw = DeclareLaunchArgument('cam_yaw', default_value='3.141592653589793')
 
     apriltag_params = DeclareLaunchArgument(
         'apriltag_params',
         default_value=PathJoinSubstitution([FindPackageShare('terralift'), 'config', 'apriltag.yaml'])
     )
-
     tag_map_file = DeclareLaunchArgument(
         'tag_map_file',
         default_value=PathJoinSubstitution([FindPackageShare('terralift'), 'config', 'tag_map.yaml'])
     )
 
-    # Sensors & Base
+    home_x = DeclareLaunchArgument('home_x', default_value='0.0')
+    home_y = DeclareLaunchArgument('home_y', default_value='0.0')
+    home_yaw = DeclareLaunchArgument('home_yaw', default_value='0.0')
+    pov_up_x = DeclareLaunchArgument('pov_up_x', default_value='1.0')
+    pov_up_y = DeclareLaunchArgument('pov_up_y', default_value='0.0')
+    pov_up_yaw = DeclareLaunchArgument('pov_up_yaw', default_value='0.0')
+    pov_left_x = DeclareLaunchArgument('pov_left_x', default_value='0.0')
+    pov_left_y = DeclareLaunchArgument('pov_left_y', default_value='1.0')
+    pov_left_yaw = DeclareLaunchArgument('pov_left_yaw', default_value='0.0')
+
     imu = Node(
         package='terralift',
         executable='imu_node',
@@ -114,11 +99,50 @@ def generate_launch_description():
         output='screen',
     )
 
+    lift_arm = Node(
+        package='terralift',
+        executable='lift_arm_node',
+        name='lift_arm',
+        output='screen',
+    )
+
     led_node = Node(
         package='terralift',
         executable='led_node',
         name='led_node',
         output='screen',
+    )
+
+    demo_mode = Node(
+        package='terralift',
+        executable='demo_mode_node',
+        name='demo_mode_node',
+        output='screen',
+        parameters=[{
+            'joy_topic': LaunchConfiguration('joy_topic'),
+            'nav_cmd_topic': LaunchConfiguration('nav_cmd_topic'),
+            'home_x': LaunchConfiguration('home_x'),
+            'home_y': LaunchConfiguration('home_y'),
+            'home_yaw': LaunchConfiguration('home_yaw'),
+            'pov_up_x': LaunchConfiguration('pov_up_x'),
+            'pov_up_y': LaunchConfiguration('pov_up_y'),
+            'pov_up_yaw': LaunchConfiguration('pov_up_yaw'),
+            'pov_left_x': LaunchConfiguration('pov_left_x'),
+            'pov_left_y': LaunchConfiguration('pov_left_y'),
+            'pov_left_yaw': LaunchConfiguration('pov_left_yaw'),
+        }],
+    )
+
+    cmd_arbiter = Node(
+        package='terralift',
+        executable='cmd_vel_arbiter',
+        name='cmd_vel_arbiter',
+        output='screen',
+        parameters=[{
+            'nav_topic': LaunchConfiguration('nav_cmd_topic'),
+            'teleop_topic': LaunchConfiguration('teleop_cmd_topic'),
+            'output_topic': LaunchConfiguration('drive_cmd_topic'),
+        }],
     )
 
     base_to_laser_tf = Node(
@@ -211,9 +235,7 @@ def generate_launch_description():
             'camera_info_url': LaunchConfiguration('camera_info_url'),
             'camera_name': 'camera',
         }],
-        remappings=[
-            ('image_raw', 'image_mono'),
-        ],
+        remappings=[('image_raw', 'image_mono')],
         condition=IfCondition(LaunchConfiguration('use_apriltags')),
     )
 
@@ -258,7 +280,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'imu_topic': '/imu/data',
-            'cmd_vel_topic': LaunchConfiguration('odom_cmd_topic'),
+            'cmd_vel_topic': LaunchConfiguration('drive_cmd_topic'),
             'odom_topic': '/open_loop_odom',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
@@ -287,9 +309,7 @@ def generate_launch_description():
         parameters=[ekf_config, {
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
-        remappings=[
-            ('odometry/filtered', '/odom'),
-        ],
+        remappings=[('odometry/filtered', '/odom')],
     )
 
     cmd_adapter = Node(
@@ -298,7 +318,7 @@ def generate_launch_description():
         name='cmd_vel_to_mecanum',
         output='screen',
         parameters=[{
-            'input_topic': LaunchConfiguration('cmd_vel_input_topic'),
+            'input_topic': LaunchConfiguration('drive_cmd_topic'),
             'output_topic': '/cmd_mecanum',
             'max_vx_mps': LaunchConfiguration('max_vx_mps'),
             'max_vy_mps': LaunchConfiguration('max_vy_mps'),
@@ -351,57 +371,26 @@ def generate_launch_description():
         }.items(),
     )
 
-    research_trial_runner = Node(
-        package='terralift',
-        executable='research_trial_runner',
-        name='research_trial_runner',
-        output='screen',
-        parameters=[{
-            'record_bag': LaunchConfiguration('record_bag'),
-            'record_all_topics': LaunchConfiguration('record_all_topics'),
-            'bag_base_dir': LaunchConfiguration('bag_base_dir'),
-            'trial_prefix': LaunchConfiguration('trial_prefix'),
-            'environment_id': LaunchConfiguration('environment_id'),
-            'trial_notes': LaunchConfiguration('trial_notes'),
-            'nav2_params_name': LaunchConfiguration('nav2_params'),
-            'parameter_set_id': LaunchConfiguration('parameter_set_id'),
-            'nav2_version': LaunchConfiguration('nav2_version'),
-            'robot_model': LaunchConfiguration('robot_model'),
-            'robot_firmware_driver_versions': LaunchConfiguration('robot_firmware_driver_versions'),
-            'use_apriltags': LaunchConfiguration('use_apriltags'),
-            'use_slam': LaunchConfiguration('use_slam'),
-            'auto_close': LaunchConfiguration('auto_close'),
-            'startup_delay_sec': LaunchConfiguration('startup_delay_sec'),
-            'goal_timeout_sec': LaunchConfiguration('goal_timeout_sec'),
-            'goal_frame': LaunchConfiguration('goal_frame'),
-            'goal_x': LaunchConfiguration('goal_x'),
-            'goal_y': LaunchConfiguration('goal_y'),
-            'goal_yaw': LaunchConfiguration('goal_yaw'),
-        }],
-    )
-
-    shutdown_on_trial_runner_exit = RegisterEventHandler(
-        OnProcessExit(
-            target_action=research_trial_runner,
-            on_exit=[EmitEvent(event=Shutdown(reason='research trial runner exited'))],
-        )
-    )
-
     return LaunchDescription([
         use_sim_time, autostart, nav2_params, use_slam,
-        auto_close, record_bag, record_all_topics, bag_base_dir,
-        trial_prefix, environment_id, trial_notes, parameter_set_id,
-        nav2_version, robot_model, robot_firmware_driver_versions,
-        startup_delay_sec, goal_timeout_sec, goal_frame, goal_x, goal_y, goal_yaw,
-        cmd_vel_input_topic, odom_cmd_topic,
+        use_apriltags, camera_device, camera_info_url,
+        joy_topic, nav_cmd_topic, teleop_cmd_topic, drive_cmd_topic,
+        max_vx, max_vy, max_wz,
         laser_x, laser_y, laser_z, laser_roll, laser_pitch, laser_yaw,
         imu_x, imu_y, imu_z, imu_roll, imu_pitch, imu_yaw,
-        max_vx, max_vy, max_wz,
-        use_apriltags, camera_device, camera_info_url,
         cam_x, cam_y, cam_z, cam_roll, cam_pitch, cam_yaw,
         apriltag_params, tag_map_file,
+        home_x, home_y, home_yaw,
+        pov_up_x, pov_up_y, pov_up_yaw,
+        pov_left_x, pov_left_y, pov_left_yaw,
 
-        imu, rplidar, drivetrain, led_node,
+        imu,
+        rplidar,
+        drivetrain,
+        lift_arm,
+        led_node,
+        demo_mode,
+        cmd_arbiter,
         base_to_laser_tf,
         base_to_imu_tf,
         base_to_camera_link_tf,
@@ -416,6 +405,4 @@ def generate_launch_description():
         slam,
         slam_lifecycle_manager,
         nav2_launch,
-        research_trial_runner,
-        shutdown_on_trial_runner_exit,
     ])

@@ -54,7 +54,7 @@ setup(
 
             # Drive & Actuators
             'drivetrain_node = terralift.drivetrain_node:main',
-            'lift_arm_node = terralift.lift_arm_node:main',
+            'lift_arm_node = terralift.lift_arm_node_v2:main',
             'led_node = terralift.led_node:main',
 
             # Sensors
@@ -71,6 +71,8 @@ setup(
             'tag_localizer = terralift.tag_localizer:main',
             'tag_pose_to_odom_reset = terralift.tag_pose_to_odom_reset:main',
             'cmd_vel_to_mecanum = terralift.cmd_vel_to_mecanum_node:main',
+            'cmd_vel_arbiter = terralift.cmd_vel_arbiter_node:main',
+            'demo_mode_node = terralift.demo_mode_node:main',
             'rosbag_node = terralift.rosbag_node:main',
             'research_trial_runner = terralift.research_trial_runner:main',
         ],
