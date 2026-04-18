@@ -194,13 +194,20 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    polygons: [FootprintApproach]
-    FootprintApproach:
+    polygons: [ForwardSlow, RearSlow]
+    ForwardSlow:
       type: "polygon"
-      action_type: "approach"
-      footprint_topic: local_costmap/published_footprint
-      time_before_collision: 0.7
-      simulation_time_step: 0.1
+      points: "[[0.52, 0.34], [0.52, -0.34], [-0.02, -0.34], [-0.02, 0.34]]"
+      action_type: "slowdown"
+      slowdown_ratio: 0.40
+      min_points: 4
+      visualize: false
+      enabled: true
+    RearSlow:
+      type: "polygon"
+      points: "[[-0.06, 0.22], [-0.06, -0.22], [-0.28, -0.22], [-0.28, 0.22]]"
+      action_type: "slowdown"
+      slowdown_ratio: 0.40
       min_points: 4
       visualize: false
       enabled: true

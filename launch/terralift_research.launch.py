@@ -23,7 +23,7 @@ def generate_launch_description():
 
     nav2_params = DeclareLaunchArgument(
         'nav2_params',
-        default_value='rpp_smac2d.yaml',
+        default_value='rpp_smac2d_course_valid.yaml',
         description='Nav2 params YAML in terralift/nav2/'
     )
 
@@ -43,8 +43,8 @@ def generate_launch_description():
     startup_delay_sec = DeclareLaunchArgument('startup_delay_sec', default_value='4.0')
     goal_timeout_sec = DeclareLaunchArgument('goal_timeout_sec', default_value='90.0')
     goal_frame = DeclareLaunchArgument('goal_frame', default_value='map')
-    goal_x = DeclareLaunchArgument('goal_x', default_value='1.0')
-    goal_y = DeclareLaunchArgument('goal_y', default_value='0.0')
+    goal_x = DeclareLaunchArgument('goal_x', default_value='2.5')
+    goal_y = DeclareLaunchArgument('goal_y', default_value='3.4')
     goal_yaw = DeclareLaunchArgument('goal_yaw', default_value='0.0')
     cmd_vel_input_topic = DeclareLaunchArgument('cmd_vel_input_topic', default_value='/cmd_vel_nav_safe')
     odom_cmd_topic = DeclareLaunchArgument('odom_cmd_topic', default_value='/cmd_vel_nav_safe')
