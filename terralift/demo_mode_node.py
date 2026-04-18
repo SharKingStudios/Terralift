@@ -59,6 +59,7 @@ class DemoModeNode(Node):
         self.trigger_pressed_value = float(
             self.declare_parameter('trigger_pressed_value', -1.0).value
         )
+        self.trigger_deadband = float(self.declare_parameter('trigger_deadband', 0.08).value)
         self.dpad_threshold = float(self.declare_parameter('dpad_threshold', 0.5).value)
         self.dpad_left_negative = bool(self.declare_parameter('dpad_left_negative', True).value)
         self.dpad_up_positive = bool(self.declare_parameter('dpad_up_positive', True).value)
@@ -161,7 +162,11 @@ class DemoModeNode(Node):
         if abs(span) < 1e-6:
             return 0.0
         amount = (self.trigger_released_value - raw) / span
-        return clamp(amount, 0.0, 1.0)
+        amount = clamp(amount, 0.0, 1.0)
+        if amount <= self.trigger_deadband:
+            return 0.0
+        scaled_span = max(1e-6, 1.0 - self.trigger_deadband)
+        return clamp((amount - self.trigger_deadband) / scaled_span, 0.0, 1.0)
 
     def _axis_value(self, joy: Joy, index: int, default: float) -> float:
         if index < 0 or index >= len(joy.axes):

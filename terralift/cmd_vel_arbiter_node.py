@@ -29,7 +29,7 @@ def copy_twist(src: Twist) -> Twist:
 
 
 class CmdVelArbiter(Node):
-    """Prefer remote teleop when present, otherwise pass through Nav2 safe commands."""
+    """Prefer recently active teleop, otherwise pass through Nav2 safe commands."""
 
     def __init__(self) -> None:
         super().__init__('cmd_vel_arbiter')
@@ -39,6 +39,9 @@ class CmdVelArbiter(Node):
         self.output_topic = str(self.declare_parameter('output_topic', '/cmd_vel_demo_drive').value)
         self.source_topic = str(self.declare_parameter('source_topic', '/demo/drive_source').value)
         self.publish_hz = float(self.declare_parameter('publish_hz', 50.0).value)
+        self.teleop_msg_timeout = float(
+            self.declare_parameter('teleop_msg_timeout_sec', 0.50).value
+        )
         self.teleop_override_timeout = float(
             self.declare_parameter('teleop_override_timeout_sec', 0.35).value
         )
@@ -49,6 +52,7 @@ class CmdVelArbiter(Node):
         self.teleop_cmd = Twist()
         self.last_nav_stamp = None
         self.last_teleop_stamp = None
+        self.last_teleop_motion_stamp = None
         self.last_source = 'idle'
 
         self.cmd_pub = self.create_publisher(Twist, self.output_topic, 10)
@@ -69,7 +73,10 @@ class CmdVelArbiter(Node):
 
     def _teleop_cb(self, msg: Twist) -> None:
         self.teleop_cmd = copy_twist(msg)
-        self.last_teleop_stamp = self.get_clock().now()
+        now = self.get_clock().now()
+        self.last_teleop_stamp = now
+        if twist_magnitude(msg) > self.teleop_deadband:
+            self.last_teleop_motion_stamp = now
 
     def _is_fresh(self, stamp, timeout_sec: float) -> bool:
         if stamp is None:
@@ -82,8 +89,8 @@ class CmdVelArbiter(Node):
         out = Twist()
 
         teleop_active = (
-            self._is_fresh(self.last_teleop_stamp, self.teleop_override_timeout) and
-            twist_magnitude(self.teleop_cmd) > self.teleop_deadband
+            self._is_fresh(self.last_teleop_stamp, self.teleop_msg_timeout) and
+            self._is_fresh(self.last_teleop_motion_stamp, self.teleop_override_timeout)
         )
 
         if teleop_active:

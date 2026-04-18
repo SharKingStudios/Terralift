@@ -89,6 +89,7 @@ class OpenLoopOdom(Node):
         self.cmd_vx = 0.0
         self.cmd_vy = 0.0
         self.cmd_wz = 0.0
+        self.active_wz = 0.0
         self.last_cmd_time = self.get_clock().now()
 
         # IMU state
@@ -164,17 +165,22 @@ class OpenLoopOdom(Node):
             target_vx = self.cmd_vx
             target_vy = self.cmd_vy
             target_wz = self.cmd_wz
+        self.active_wz = target_wz
 
         # Smooth body velocity response toward command target
-        tau = max(1e-3, self.vel_response_tau)
-        alpha = 1.0 - math.exp(-dt / tau)
-        self.vx_body += alpha * (target_vx - self.vx_body)
-        self.vy_body += alpha * (target_vy - self.vy_body)
+        if self.vel_response_tau <= 0.0:
+            self.vx_body = target_vx
+            self.vy_body = target_vy
+        else:
+            tau = max(1e-3, self.vel_response_tau)
+            alpha = 1.0 - math.exp(-dt / tau)
+            self.vx_body += alpha * (target_vx - self.vx_body)
+            self.vy_body += alpha * (target_vy - self.vy_body)
 
-        if abs(target_vx) < 1e-5 and abs(target_vy) < 1e-5:
-            decay = math.exp(-max(0.0, self.idle_velocity_decay) * dt)
-            self.vx_body *= decay
-            self.vy_body *= decay
+            if abs(target_vx) < 1e-5 and abs(target_vy) < 1e-5:
+                decay = math.exp(-max(0.0, self.idle_velocity_decay) * dt)
+                self.vx_body *= decay
+                self.vy_body *= decay
 
         # Update yaw from gyro, then gently pull toward IMU orientation if available
         if self.use_imu_gyro:
@@ -223,7 +229,7 @@ class OpenLoopOdom(Node):
 
         odom.twist.twist.linear.x = float(self.vx_body)
         odom.twist.twist.linear.y = float(self.vy_body)
-        odom.twist.twist.angular.z = float(self.imu_wz_filt if self.use_imu_gyro else self.cmd_wz)
+        odom.twist.twist.angular.z = float(self.imu_wz_filt if self.use_imu_gyro else self.active_wz)
 
         # Conservative covariance to tell downstream filters this is only an approximate prior.
         odom.pose.covariance[0] = 0.05

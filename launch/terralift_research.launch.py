@@ -28,6 +28,7 @@ def generate_launch_description():
     )
 
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
+    enable_trial_runner = DeclareLaunchArgument('enable_trial_runner', default_value='true')
     auto_close = DeclareLaunchArgument('auto_close', default_value='true')
     record_bag = DeclareLaunchArgument('record_bag', default_value='true')
     record_all_topics = DeclareLaunchArgument('record_all_topics', default_value='false')
@@ -47,6 +48,7 @@ def generate_launch_description():
     goal_yaw = DeclareLaunchArgument('goal_yaw', default_value='0.0')
     cmd_vel_input_topic = DeclareLaunchArgument('cmd_vel_input_topic', default_value='/cmd_vel_nav_safe')
     odom_cmd_topic = DeclareLaunchArgument('odom_cmd_topic', default_value='/cmd_vel_nav_safe')
+    odom_vel_response_tau = DeclareLaunchArgument('odom_vel_response_tau', default_value='0.18')
 
     # TF offsets
     laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
@@ -266,7 +268,7 @@ def generate_launch_description():
             'publish_tf': False,
             'reset_pose_topic': '/tag_reset_pose',
             'cmd_timeout': 0.35,
-            'vel_response_tau': 0.18,
+            'vel_response_tau': LaunchConfiguration('odom_vel_response_tau'),
             'idle_velocity_decay': 4.0,
             'max_vx_mps': LaunchConfiguration('max_vx_mps'),
             'max_vy_mps': LaunchConfiguration('max_vy_mps'),
@@ -356,6 +358,7 @@ def generate_launch_description():
         executable='research_trial_runner',
         name='research_trial_runner',
         output='screen',
+        condition=IfCondition(LaunchConfiguration('enable_trial_runner')),
         parameters=[{
             'record_bag': LaunchConfiguration('record_bag'),
             'record_all_topics': LaunchConfiguration('record_all_topics'),
@@ -381,19 +384,20 @@ def generate_launch_description():
     )
 
     shutdown_on_trial_runner_exit = RegisterEventHandler(
-        OnProcessExit(
+        condition=IfCondition(LaunchConfiguration('enable_trial_runner')),
+        event_handler=OnProcessExit(
             target_action=research_trial_runner,
             on_exit=[EmitEvent(event=Shutdown(reason='research trial runner exited'))],
         )
     )
 
     return LaunchDescription([
-        use_sim_time, autostart, nav2_params, use_slam,
+        use_sim_time, autostart, nav2_params, use_slam, enable_trial_runner,
         auto_close, record_bag, record_all_topics, bag_base_dir,
         trial_prefix, environment_id, trial_notes, parameter_set_id,
         nav2_version, robot_model, robot_firmware_driver_versions,
         startup_delay_sec, goal_timeout_sec, goal_frame, goal_x, goal_y, goal_yaw,
-        cmd_vel_input_topic, odom_cmd_topic,
+        cmd_vel_input_topic, odom_cmd_topic, odom_vel_response_tau,
         laser_x, laser_y, laser_z, laser_roll, laser_pitch, laser_yaw,
         imu_x, imu_y, imu_z, imu_roll, imu_pitch, imu_yaw,
         max_vx, max_vy, max_wz,

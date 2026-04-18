@@ -130,6 +130,9 @@ class LiftArmNode(Node):
         self.command_deadband_us = float(
             self.declare_parameter('command_deadband_us', 2.0).value
         )
+        self.output_deadband_us = float(
+            self.declare_parameter('output_deadband_us', 1.0).value
+        )
         self.update_hz = float(self.declare_parameter('update_hz', 120.0).value)
         self.simulate = bool(self.declare_parameter('simulate', False).value)
         self.preferred_backend = str(self.declare_parameter('backend', 'auto').value).lower()
@@ -137,9 +140,14 @@ class LiftArmNode(Node):
         self.current_us = 0.5 * (self.min_us + self.max_us)
         self.target_us = self.current_us
         self.last_update = self.get_clock().now()
+        self.last_sent_us = float('nan')
 
         self.backend = self._build_backend()
-        self.backend.set_pulse_us(self.current_us)
+        if self.backend.backend_name == 'RPi.GPIO':
+            self.get_logger().warn(
+                'Lift arm is using RPi.GPIO software PWM; pigpio is recommended for less servo jitter'
+            )
+        self._write_output(self.current_us, force=True)
 
         self.create_subscription(Float32, 'lift_arm/command', self.command_cb, 10)
         self.timer = self.create_timer(1.0 / max(1.0, self.update_hz), self.update_servo)
@@ -178,6 +186,17 @@ class LiftArmNode(Node):
         span = self.max_us - self.min_us
         self.target_us = self.min_us + (deg / max(1e-6, self.max_deg)) * span
 
+    def _write_output(self, pulse_us: float, force: bool = False) -> None:
+        if (
+            not force and
+            self.output_deadband_us > 0.0 and
+            math.isfinite(self.last_sent_us) and
+            abs(pulse_us - self.last_sent_us) <= self.output_deadband_us
+        ):
+            return
+        self.backend.set_pulse_us(pulse_us)
+        self.last_sent_us = pulse_us
+
     def update_servo(self) -> None:
         now = self.get_clock().now()
         dt = max(0.0, (now - self.last_update).nanoseconds * 1e-9)
@@ -194,7 +213,7 @@ class LiftArmNode(Node):
             self.current_us += math.copysign(min(abs(delta), max_step), delta)
 
         self.current_us = clamp(self.current_us, self.min_us, self.max_us)
-        self.backend.set_pulse_us(self.current_us)
+        self._write_output(self.current_us)
 
     def destroy_node(self):
         self.backend.close()
