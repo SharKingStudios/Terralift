@@ -70,7 +70,14 @@ def generate_launch_description():
         package='terralift',
         executable='drivetrain_node',
         name='drivetrain',
-        output='screen'
+        output='screen',
+        parameters=[{
+            'cmd_topic': '/cmd_mecanum',
+            'odom_topic': '/odom',
+            'max_vx_mps': 0.6,
+            'max_vy_mps': 0.6,
+            'max_wz_rps': 1.5,
+        }]
     )
 
     lift_arm_node = Node(

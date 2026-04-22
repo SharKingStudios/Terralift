@@ -114,6 +114,13 @@ def generate_launch_description():
         executable='drivetrain_node',
         name='drivetrain_node',
         output='screen',
+        parameters=[{
+            'cmd_topic': '/cmd_mecanum',
+            'odom_topic': '/odom',
+            'max_vx_mps': LaunchConfiguration('max_vx_mps'),
+            'max_vy_mps': LaunchConfiguration('max_vy_mps'),
+            'max_wz_rps': LaunchConfiguration('max_wz_rps'),
+        }],
     )
 
     led_node = Node(

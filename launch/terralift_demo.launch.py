@@ -80,6 +80,10 @@ def generate_launch_description():
     pov_left_x = DeclareLaunchArgument('pov_left_x', default_value='0.0')
     pov_left_y = DeclareLaunchArgument('pov_left_y', default_value='1.0')
     pov_left_yaw = DeclareLaunchArgument('pov_left_yaw', default_value='0.0')
+    pov_right_x = DeclareLaunchArgument('pov_right_x', default_value='0.0')
+    pov_right_y = DeclareLaunchArgument('pov_right_y', default_value='-1.0')
+    pov_right_yaw = DeclareLaunchArgument('pov_right_yaw', default_value='0.0')
+    waypoint_save_hold_sec = DeclareLaunchArgument('waypoint_save_hold_sec', default_value='1.0')
 
     research_stack = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_share, 'launch', 'terralift_research.launch.py')),
@@ -149,6 +153,10 @@ def generate_launch_description():
             'pov_left_x': LaunchConfiguration('pov_left_x'),
             'pov_left_y': LaunchConfiguration('pov_left_y'),
             'pov_left_yaw': LaunchConfiguration('pov_left_yaw'),
+            'pov_right_x': LaunchConfiguration('pov_right_x'),
+            'pov_right_y': LaunchConfiguration('pov_right_y'),
+            'pov_right_yaw': LaunchConfiguration('pov_right_yaw'),
+            'waypoint_save_hold_sec': LaunchConfiguration('waypoint_save_hold_sec'),
         }],
     )
 
@@ -161,9 +169,11 @@ def generate_launch_description():
             'nav_topic': LaunchConfiguration('nav_cmd_topic'),
             'teleop_topic': LaunchConfiguration('teleop_cmd_topic'),
             'output_topic': LaunchConfiguration('drive_cmd_topic'),
+            'joy_topic': LaunchConfiguration('joy_topic'),
             'teleop_msg_timeout_sec': 0.50,
             'teleop_override_timeout_sec': 0.45,
             'teleop_deadband': 0.01,
+            'field_oriented_teleop': True,
         }],
     )
 
@@ -213,6 +223,10 @@ def generate_launch_description():
         pov_left_x,
         pov_left_y,
         pov_left_yaw,
+        pov_right_x,
+        pov_right_y,
+        pov_right_yaw,
+        waypoint_save_hold_sec,
         research_stack,
         lift_arm,
         demo_mode,

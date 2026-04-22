@@ -9,9 +9,12 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
+from rclpy.duration import Duration
 from rclpy.node import Node
+from rclpy.time import Time
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Float32, String
+from tf2_ros import Buffer, TransformException, TransformListener
 
 
 LED_IDLE = 'IDLE_CONFETTI'
@@ -41,9 +44,14 @@ class DemoModeNode(Node):
         self.led_topic = str(self.declare_parameter('led_topic', '/led/state').value)
         self.goal_pose_topic = str(self.declare_parameter('goal_pose_topic', '/demo/goal_pose').value)
         self.goal_frame = str(self.declare_parameter('goal_frame', 'map').value)
+        self.base_frame = str(self.declare_parameter('base_frame', 'base_link').value)
 
         self.publish_hz = float(self.declare_parameter('publish_hz', 50.0).value)
         self.joy_timeout_sec = float(self.declare_parameter('joy_timeout_sec', 0.5).value)
+        self.waypoint_save_hold_sec = float(
+            self.declare_parameter('waypoint_save_hold_sec', 1.0).value
+        )
+        self.tf_timeout_sec = float(self.declare_parameter('tf_timeout_sec', 0.20).value)
         self.following_cmd_threshold = float(
             self.declare_parameter('following_cmd_threshold', 0.05).value
         )
@@ -72,8 +80,12 @@ class DemoModeNode(Node):
         )
 
         self.home_goal = self._load_goal_param('home', 0.0, 0.0, 0.0)
-        self.pov_up_goal = self._load_goal_param('pov_up', 1.0, 0.0, 0.0)
-        self.pov_left_goal = self._load_goal_param('pov_left', 0.0, 1.0, 0.0)
+        self.pov_goals = {
+            'up': self._load_goal_param('pov_up', 1.0, 0.0, 0.0),
+            'left': self._load_goal_param('pov_left', 0.0, 1.0, 0.0),
+            'right': self._load_goal_param('pov_right', 0.0, -1.0, 0.0),
+        }
+        self.saveable_dpad_slots = ('up', 'left', 'right')
 
         self.lift_pub = self.create_publisher(Float32, self.lift_topic, 10)
         self.led_pub = self.create_publisher(String, self.led_topic, 10)
@@ -83,11 +95,15 @@ class DemoModeNode(Node):
         self.create_subscription(Twist, self.nav_cmd_topic, self._nav_cmd_cb, 10)
 
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.tf_buffer = Buffer(cache_time=Duration(seconds=30.0))
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
 
         self.last_joy = Joy()
         self.last_joy_stamp = None
         self.last_tick = self.get_clock().now()
-        self.prev_dpad = {'up': False, 'down': False, 'left': False}
+        self.prev_dpad = {'up': False, 'down': False, 'left': False, 'right': False}
+        self.dpad_press_start = {name: None for name in self.saveable_dpad_slots}
+        self.dpad_hold_consumed = {name: False for name in self.saveable_dpad_slots}
 
         self.lift_target_deg = clamp(self.lift_initial_deg, self.lift_min_deg, self.lift_max_deg)
         self.last_led_mode = ''
@@ -104,8 +120,8 @@ class DemoModeNode(Node):
         self._publish_lift_target()
 
         self.get_logger().info(
-            'Demo mode ready: D-pad down=home, up=preset, left=preset, '
-            'right trigger raises lift, left trigger lowers lift'
+            'Demo mode ready: D-pad down=home, up/left/right tap=waypoint, '
+            'hold to save current pose, right trigger raises lift, left trigger lowers lift'
         )
 
     def _load_goal_param(self, prefix: str, default_x: float, default_y: float, default_yaw: float):
@@ -115,16 +131,33 @@ class DemoModeNode(Node):
         return (x, y, yaw)
 
     def _joy_cb(self, msg: Joy) -> None:
+        now = self.get_clock().now()
         self.last_joy = msg
-        self.last_joy_stamp = self.get_clock().now()
+        self.last_joy_stamp = now
 
         dpad = self._read_dpad(msg)
         if dpad['down'] and not self.prev_dpad['down']:
             self._request_goal('home', self.home_goal)
-        if dpad['up'] and not self.prev_dpad['up']:
-            self._request_goal('pov_up', self.pov_up_goal)
-        if dpad['left'] and not self.prev_dpad['left']:
-            self._request_goal('pov_left', self.pov_left_goal)
+
+        for name in self.saveable_dpad_slots:
+            if dpad[name]:
+                if not self.prev_dpad[name]:
+                    self.dpad_press_start[name] = now
+                    self.dpad_hold_consumed[name] = False
+                elif (
+                    self.dpad_press_start[name] is not None and
+                    not self.dpad_hold_consumed[name]
+                ):
+                    held_sec = (now - self.dpad_press_start[name]).nanoseconds * 1e-9
+                    if held_sec >= self.waypoint_save_hold_sec:
+                        self._save_current_pose_as_waypoint(name)
+                        self.dpad_hold_consumed[name] = True
+            elif self.prev_dpad[name]:
+                if not self.dpad_hold_consumed[name]:
+                    self._request_slot_goal(name)
+                self.dpad_press_start[name] = None
+                self.dpad_hold_consumed[name] = False
+
         self.prev_dpad = dpad
 
     def _nav_cmd_cb(self, msg: Twist) -> None:
@@ -179,11 +212,54 @@ class DemoModeNode(Node):
         up_pressed = dpad_y >= self.dpad_threshold if self.dpad_up_positive else dpad_y <= -self.dpad_threshold
         down_pressed = dpad_y <= -self.dpad_threshold if self.dpad_up_positive else dpad_y >= self.dpad_threshold
         left_pressed = dpad_x <= -self.dpad_threshold if self.dpad_left_negative else dpad_x >= self.dpad_threshold
+        right_pressed = dpad_x >= self.dpad_threshold if self.dpad_left_negative else dpad_x <= -self.dpad_threshold
         return {
             'up': up_pressed,
             'down': down_pressed,
             'left': left_pressed,
+            'right': right_pressed,
         }
+
+    def _request_slot_goal(self, name: str) -> None:
+        pose_tuple = self.pov_goals.get(name)
+        if pose_tuple is None:
+            self.get_logger().warn(f'No waypoint configured for D-pad {name}')
+            return
+        self._request_goal(f'pov_{name}', pose_tuple)
+
+    def _save_current_pose_as_waypoint(self, name: str) -> bool:
+        pose_tuple = self._lookup_current_pose()
+        if pose_tuple is None:
+            self.get_logger().warn(
+                f'Could not save D-pad {name} waypoint because {self.goal_frame}->{self.base_frame} is unavailable'
+            )
+            return False
+
+        self.pov_goals[name] = pose_tuple
+        self.get_logger().info(
+            f'Saved D-pad {name} waypoint -> x={pose_tuple[0]:.3f}, y={pose_tuple[1]:.3f}, yaw={pose_tuple[2]:.3f}'
+        )
+        return True
+
+    def _lookup_current_pose(self) -> Optional[Tuple[float, float, float]]:
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.goal_frame,
+                self.base_frame,
+                Time(),
+                timeout=Duration(seconds=max(0.0, self.tf_timeout_sec)),
+            )
+        except TransformException as exc:
+            self.get_logger().warn(f'Pose lookup failed for {self.goal_frame}->{self.base_frame}: {exc}')
+            return None
+
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        yaw = math.atan2(
+            2.0 * (rotation.w * rotation.z + rotation.x * rotation.y),
+            1.0 - 2.0 * (rotation.y * rotation.y + rotation.z * rotation.z),
+        )
+        return (float(translation.x), float(translation.y), float(yaw))
 
     def _request_goal(self, name: str, pose_tuple: Tuple[float, float, float]) -> None:
         if not self.nav_client.wait_for_server(timeout_sec=0.25):

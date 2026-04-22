@@ -70,8 +70,10 @@ Default mapping assumes `joy_node` publishes the common Linux Xbox layout:
 - right trigger: raise lift
 - left trigger: lower lift
 - D-pad down: send home goal `(0, 0, 0)` in `map`
-- D-pad up: send the `pov_up_*` preset
-- D-pad left: send the `pov_left_*` preset
+- D-pad up: tap to send the `pov_up_*` waypoint, hold to save the current pose into that slot
+- D-pad left: tap to send the `pov_left_*` waypoint, hold to save the current pose into that slot
+- D-pad right: tap to send the `pov_right_*` waypoint, hold to save the current pose into that slot
+- `Y`: reset the field-oriented teleop heading so the robot's current facing becomes "forward"
 
 ### Demo Laptop Side
 
@@ -93,13 +95,16 @@ Default preset goals are:
 - `home = (0.0, 0.0, 0.0)`
 - `pov_up = (1.0, 0.0, 0.0)`
 - `pov_left = (0.0, 1.0, 0.0)`
+- `pov_right = (0.0, -1.0, 0.0)`
 
 Example:
 
 ```bash
 ros2 launch terralift terralift_demo.launch.py \
   pov_up_x:=2.4 pov_up_y:=0.0 pov_up_yaw:=0.0 \
-  pov_left_x:=0.0 pov_left_y:=1.8 pov_left_yaw:=1.57
+  pov_left_x:=0.0 pov_left_y:=1.8 pov_left_yaw:=1.57 \
+  pov_right_x:=0.0 pov_right_y:=-1.8 pov_right_yaw:=-1.57 \
+  waypoint_save_hold_sec:=1.0
 ```
 
 ## Common Launch Files
@@ -112,4 +117,5 @@ ros2 launch terralift terralift_demo.launch.py \
 ## Notes
 
 - Demo mode assumes `joy_node` and `teleop_twist_joy` are running on another ROS 2 machine on the same network/domain.
+- Demo teleop is field-oriented in the robot's current odom frame, and tapping `Y` re-zeros that heading reference.
 - The D-pad and trigger mappings are parameters in `demo_mode_node.py`, so controller remapping can be done without touching the arbiter or Nav2 wiring.
