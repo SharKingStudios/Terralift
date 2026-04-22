@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -28,6 +29,7 @@ def generate_launch_description():
     teleop_cmd_topic = DeclareLaunchArgument('teleop_cmd_topic', default_value='/cmd_vel_teleop')
     drive_cmd_topic = DeclareLaunchArgument('drive_cmd_topic', default_value='/cmd_vel_demo_drive')
     odom_vel_response_tau = DeclareLaunchArgument('odom_vel_response_tau', default_value='0.0')
+    enable_lift_arm = DeclareLaunchArgument('enable_lift_arm', default_value='false')
 
     camera_device = DeclareLaunchArgument('camera_device', default_value='/dev/video0')
     camera_info_url = DeclareLaunchArgument(
@@ -127,6 +129,7 @@ def generate_launch_description():
         executable='lift_arm_node',
         name='lift_arm',
         output='screen',
+        condition=IfCondition(LaunchConfiguration('enable_lift_arm')),
     )
 
     demo_mode = Node(
@@ -175,6 +178,7 @@ def generate_launch_description():
         teleop_cmd_topic,
         drive_cmd_topic,
         odom_vel_response_tau,
+        enable_lift_arm,
         camera_device,
         camera_info_url,
         laser_x,
