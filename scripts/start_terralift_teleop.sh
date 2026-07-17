@@ -340,22 +340,24 @@ open_robot_output_terminal() {
     return 0
   fi
 
-  local remote_cmd
+  local remote_cmd ssh_line terminal_line
   remote_cmd="trap 'echo; echo Stopping Terralift stack on robot...; ~/terralift_ws/bin/stop_demo_mode.sh; exit 130' INT TERM; tail -n 160 -F ~/terralift_run_logs/terralift_demo.log & wait \$!"
+  printf -v ssh_line 'ssh -t -o StrictHostKeyChecking=accept-new %q bash -lc %q' "$ACTIVE_ROBOT_SSH" "$remote_cmd"
+  terminal_line="$ssh_line; echo; read -r -p 'Robot output ended. Press Enter to close...'"
 
   if [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
     echo "No GUI display detected for opening a robot-output terminal."
-    echo "Manual robot output/stop: ssh -t $ACTIVE_ROBOT_SSH '$remote_cmd'"
+    echo "Manual robot output/stop: $ssh_line"
     return 0
   fi
 
   echo "Opening robot output terminal following $ACTIVE_ROBOT_SSH:terralift_demo log"
   if command -v konsole >/dev/null 2>&1; then
-    konsole --new-tab -p tabtitle='Terralift Robot' -e bash -lc "ssh -t -o StrictHostKeyChecking=accept-new '$ACTIVE_ROBOT_SSH' '$remote_cmd'; echo; read -r -p 'Robot output ended. Press Enter to close...'" >/dev/null 2>&1 &
+    konsole --new-tab -p tabtitle='Terralift Robot' -e bash -lc "$terminal_line" >/dev/null 2>&1 &
   elif command -v xterm >/dev/null 2>&1; then
-    xterm -T 'Terralift Robot' -e bash -lc "ssh -t -o StrictHostKeyChecking=accept-new '$ACTIVE_ROBOT_SSH' '$remote_cmd'; echo; read -r -p 'Robot output ended. Press Enter to close...'" >/dev/null 2>&1 &
+    xterm -T 'Terralift Robot' -e bash -lc "$terminal_line" >/dev/null 2>&1 &
   else
-    echo "No konsole/xterm found. Manual robot output/stop: ssh -t $ACTIVE_ROBOT_SSH '$remote_cmd'"
+    echo "No konsole/xterm found. Manual robot output/stop: $ssh_line"
   fi
 }
 
