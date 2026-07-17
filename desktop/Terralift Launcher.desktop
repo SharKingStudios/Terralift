@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Terralift Launcher
+Comment=Open the Terralift robot/teleop menu
+Exec=/home/logan/terralift_ws/start_terralift_teleop.sh
+Icon=input-gaming
+Terminal=true
+Categories=Development;Robotics;
+StartupNotify=true

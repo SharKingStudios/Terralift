@@ -31,6 +31,10 @@ setup(
         # Helper shell scripts
         ('share/' + package_name + '/scripts',
             glob('scripts/*.sh')),
+
+        # Desktop shortcut templates
+        ('share/' + package_name + '/desktop',
+            glob('desktop/*.desktop')),
     ],
 
     install_requires=['setuptools'],

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Terralift Wi-Fi Fix
+Comment=Switch main Wi-Fi to Terralift and use a secondary adapter for home if present
+Exec=/home/logan/terralift_ws/start_terralift_teleop.sh --wifi-only
+Icon=network-wireless
+Terminal=true
+Categories=Development;Robotics;Network;
+StartupNotify=true
