@@ -164,9 +164,6 @@ The demo stack is deliberately sequenced because the robot can otherwise start i
 - RPLIDAR is started first and must publish `/scan` before the heavier stack starts.
 - SLAM waits for both `/scan` and `/odom` before configuring and activating.
 - Nav2 waits for `/map` before it starts.
-- Demo controls wait for `/scan` so controller/lift/arbiter nodes do not race the sensor stack.
-
-The intermittent `frame ID "map" passed to canTransform is invalid` failure was a startup race. When the lidar or SLAM side did not fully come up, Nav2 was able to start before a valid map frame existed, then it spammed TF errors and sometimes killed the stack. Retrying or rebooting sometimes fixed it because the lidar serial negotiation and ROS graph happened to come up in a healthier order.
 
 ## Useful Commands
 
