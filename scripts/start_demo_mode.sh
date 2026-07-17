@@ -184,16 +184,41 @@ fi
 LIDAR_LOG="$LOG_DIR/${SESSION}_rplidar.log"
 LIDAR_PID=""
 SCAN_WAIT_PID=""
-cleanup() {
+stop_lidar() {
   if [[ -n "\${SCAN_WAIT_PID:-}" ]] && kill -0 "\$SCAN_WAIT_PID" 2>/dev/null; then
     kill "\$SCAN_WAIT_PID" 2>/dev/null || true
     wait "\$SCAN_WAIT_PID" 2>/dev/null || true
   fi
+  SCAN_WAIT_PID=""
+
   if [[ -n "\${LIDAR_PID:-}" ]] && kill -0 "\$LIDAR_PID" 2>/dev/null; then
-    echo "Stopping RPLIDAR preflight process \$LIDAR_PID"
-    kill "\$LIDAR_PID" 2>/dev/null || true
+    echo "Stopping RPLIDAR driver process group \$LIDAR_PID"
+    kill -TERM -- "-\$LIDAR_PID" 2>/dev/null || true
+    for _ in \$(seq 1 20); do
+      if ! kill -0 "\$LIDAR_PID" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+    if kill -0 "\$LIDAR_PID" 2>/dev/null; then
+      kill -KILL -- "-\$LIDAR_PID" 2>/dev/null || true
+    fi
     wait "\$LIDAR_PID" 2>/dev/null || true
   fi
+  LIDAR_PID=""
+
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k /dev/ttyUSB0 >/dev/null 2>&1 || true
+    for _ in \$(seq 1 20); do
+      if ! fuser /dev/ttyUSB0 >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+}
+cleanup() {
+  stop_lidar
 }
 trap cleanup EXIT INT TERM HUP
 source /opt/ros/jazzy/setup.bash
@@ -213,28 +238,31 @@ ros2 daemon start >/dev/null 2>&1 || true
 
 LIDAR_READY=false
 LIDAR_READY_TIMEOUT="\${TERRALIFT_LIDAR_READY_TIMEOUT:-15}"
-LIDAR_INITIAL_SETTLE_SECONDS="\${TERRALIFT_LIDAR_INITIAL_SETTLE_SECONDS:-2}"
-for lidar_attempt in \$(seq 1 3); do
-  echo "Starting RPLIDAR preflight attempt \$lidar_attempt at \$(date)"
+LIDAR_WARMUP_TIMEOUT="\${TERRALIFT_LIDAR_WARMUP_TIMEOUT:-5}"
+command -v setsid >/dev/null 2>&1 || { echo "ERROR: setsid is required to manage the RPLIDAR driver."; exit 1; }
+for lidar_attempt in 0 1 2; do
+  if [[ "\$lidar_attempt" == "0" ]]; then
+    LIDAR_STAGE="warm-up"
+    LIDAR_WAIT_TIMEOUT="\$LIDAR_WARMUP_TIMEOUT"
+  else
+    LIDAR_STAGE="preflight attempt \$lidar_attempt"
+    LIDAR_WAIT_TIMEOUT="\$LIDAR_READY_TIMEOUT"
+  fi
+
+  echo "Starting RPLIDAR \$LIDAR_STAGE at \$(date)"
   : >"\$LIDAR_LOG"
-  if command -v fuser >/dev/null 2>&1; then
-    fuser -k /dev/ttyUSB0 >/dev/null 2>&1 || true
-  fi
-  if [[ "\$lidar_attempt" == "1" ]]; then
-    echo "Allowing \${LIDAR_INITIAL_SETTLE_SECONDS}s for the USB lidar reset"
-    sleep "\$LIDAR_INITIAL_SETTLE_SECONDS"
-  fi
+  stop_lidar
   sleep 0.5
-  ros2 launch terralift rplidar.launch.py >"\$LIDAR_LOG" 2>&1 &
+  setsid ros2 launch terralift rplidar.launch.py >"\$LIDAR_LOG" 2>&1 &
   LIDAR_PID=\$!
 
-  echo "Waiting up to \${LIDAR_READY_TIMEOUT}s for /scan"
-  timeout "\$LIDAR_READY_TIMEOUT" ros2 topic echo /scan --once >/dev/null 2>&1 &
+  echo "Waiting up to \${LIDAR_WAIT_TIMEOUT}s for /scan"
+  timeout "\$LIDAR_WAIT_TIMEOUT" ros2 topic echo /scan --once >/dev/null 2>&1 &
   SCAN_WAIT_PID=\$!
   LIDAR_EXITED=false
   while kill -0 "\$SCAN_WAIT_PID" 2>/dev/null; do
     if ! kill -0 "\$LIDAR_PID" 2>/dev/null; then
-      echo "RPLIDAR preflight process exited before /scan appeared on attempt \$lidar_attempt. Log follows:"
+      echo "RPLIDAR \$LIDAR_STAGE exited before /scan appeared. Log follows:"
       cat "\$LIDAR_LOG" || true
       LIDAR_EXITED=true
       kill "\$SCAN_WAIT_PID" 2>/dev/null || true
@@ -250,20 +278,16 @@ for lidar_attempt in \$(seq 1 3); do
   fi
   SCAN_WAIT_PID=""
 
-  echo "RPLIDAR attempt \$lidar_attempt did not publish /scan. Log follows:"
+  echo "RPLIDAR \$LIDAR_STAGE did not publish /scan. Log follows:"
   cat "\$LIDAR_LOG" || true
-  if [[ -n "\${LIDAR_PID:-}" ]] && kill -0 "\$LIDAR_PID" 2>/dev/null; then
-    kill "\$LIDAR_PID" 2>/dev/null || true
-    wait "\$LIDAR_PID" 2>/dev/null || true
-  fi
-  LIDAR_PID=""
+  stop_lidar
   ros2 daemon stop >/dev/null 2>&1 || true
   ros2 daemon start >/dev/null 2>&1 || true
   sleep 2
 done
 
 if [[ "\$LIDAR_READY" != "true" ]]; then
-  echo "RPLIDAR did not publish /scan after 3 preflight attempts. Last log follows:"
+  echo "RPLIDAR did not publish /scan after the warm-up and 2 preflight attempts. Last log follows:"
   cat "\$LIDAR_LOG" || true
   exit 1
 fi
