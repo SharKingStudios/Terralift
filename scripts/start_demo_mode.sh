@@ -213,11 +213,16 @@ ros2 daemon start >/dev/null 2>&1 || true
 
 LIDAR_READY=false
 LIDAR_READY_TIMEOUT="\${TERRALIFT_LIDAR_READY_TIMEOUT:-15}"
+LIDAR_INITIAL_SETTLE_SECONDS="\${TERRALIFT_LIDAR_INITIAL_SETTLE_SECONDS:-2}"
 for lidar_attempt in \$(seq 1 3); do
   echo "Starting RPLIDAR preflight attempt \$lidar_attempt at \$(date)"
   : >"\$LIDAR_LOG"
   if command -v fuser >/dev/null 2>&1; then
     fuser -k /dev/ttyUSB0 >/dev/null 2>&1 || true
+  fi
+  if [[ "\$lidar_attempt" == "1" ]]; then
+    echo "Allowing \${LIDAR_INITIAL_SETTLE_SECONDS}s for the USB lidar reset"
+    sleep "\$LIDAR_INITIAL_SETTLE_SECONDS"
   fi
   sleep 0.5
   ros2 launch terralift rplidar.launch.py >"\$LIDAR_LOG" 2>&1 &
