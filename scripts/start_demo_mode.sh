@@ -183,7 +183,12 @@ else
 fi
 LIDAR_LOG="$LOG_DIR/${SESSION}_rplidar.log"
 LIDAR_PID=""
+SCAN_WAIT_PID=""
 cleanup() {
+  if [[ -n "\${SCAN_WAIT_PID:-}" ]] && kill -0 "\$SCAN_WAIT_PID" 2>/dev/null; then
+    kill "\$SCAN_WAIT_PID" 2>/dev/null || true
+    wait "\$SCAN_WAIT_PID" 2>/dev/null || true
+  fi
   if [[ -n "\${LIDAR_PID:-}" ]] && kill -0 "\$LIDAR_PID" 2>/dev/null; then
     echo "Stopping RPLIDAR preflight process \$LIDAR_PID"
     kill "\$LIDAR_PID" 2>/dev/null || true
@@ -207,6 +212,7 @@ ros2 daemon stop >/dev/null 2>&1 || true
 ros2 daemon start >/dev/null 2>&1 || true
 
 LIDAR_READY=false
+LIDAR_READY_TIMEOUT="\${TERRALIFT_LIDAR_READY_TIMEOUT:-15}"
 for lidar_attempt in \$(seq 1 3); do
   echo "Starting RPLIDAR preflight attempt \$lidar_attempt at \$(date)"
   : >"\$LIDAR_LOG"
@@ -217,18 +223,27 @@ for lidar_attempt in \$(seq 1 3); do
   ros2 launch terralift rplidar.launch.py >"\$LIDAR_LOG" 2>&1 &
   LIDAR_PID=\$!
 
-  for attempt in \$(seq 1 20); do
+  echo "Waiting up to \${LIDAR_READY_TIMEOUT}s for /scan"
+  timeout "\$LIDAR_READY_TIMEOUT" ros2 topic echo /scan --once >/dev/null 2>&1 &
+  SCAN_WAIT_PID=\$!
+  LIDAR_EXITED=false
+  while kill -0 "\$SCAN_WAIT_PID" 2>/dev/null; do
     if ! kill -0 "\$LIDAR_PID" 2>/dev/null; then
       echo "RPLIDAR preflight process exited before /scan appeared on attempt \$lidar_attempt. Log follows:"
       cat "\$LIDAR_LOG" || true
+      LIDAR_EXITED=true
+      kill "\$SCAN_WAIT_PID" 2>/dev/null || true
+      wait "\$SCAN_WAIT_PID" 2>/dev/null || true
       break
     fi
-    if timeout 2 ros2 topic echo /scan --once >/dev/null 2>&1; then
-      LIDAR_READY=true
-      break 2
-    fi
-    sleep 1
+    sleep 0.25
   done
+  if [[ "\$LIDAR_EXITED" == "false" ]] && wait "\$SCAN_WAIT_PID"; then
+    LIDAR_READY=true
+    SCAN_WAIT_PID=""
+    break
+  fi
+  SCAN_WAIT_PID=""
 
   echo "RPLIDAR attempt \$lidar_attempt did not publish /scan. Log follows:"
   cat "\$LIDAR_LOG" || true
