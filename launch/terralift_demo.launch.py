@@ -3,8 +3,9 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -17,6 +18,7 @@ def generate_launch_description():
     use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='false')
     autostart = DeclareLaunchArgument('autostart', default_value='true')
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
+    use_lidar = DeclareLaunchArgument('use_lidar', default_value='true')
     use_apriltags = DeclareLaunchArgument('use_apriltags', default_value='true')
     nav2_params = DeclareLaunchArgument(
         'nav2_params',
@@ -92,6 +94,7 @@ def generate_launch_description():
             'autostart': LaunchConfiguration('autostart'),
             'nav2_params': LaunchConfiguration('nav2_params'),
             'use_slam': LaunchConfiguration('use_slam'),
+            'use_lidar': LaunchConfiguration('use_lidar'),
             'enable_trial_runner': 'false',
             'auto_close': 'false',
             'record_bag': 'false',
@@ -157,6 +160,7 @@ def generate_launch_description():
             'pov_right_y': LaunchConfiguration('pov_right_y'),
             'pov_right_yaw': LaunchConfiguration('pov_right_yaw'),
             'waypoint_save_hold_sec': LaunchConfiguration('waypoint_save_hold_sec'),
+            'publish_hz': 50.0,
         }],
     )
 
@@ -173,14 +177,34 @@ def generate_launch_description():
             'teleop_msg_timeout_sec': 0.50,
             'teleop_override_timeout_sec': 0.45,
             'teleop_deadband': 0.01,
+            'publish_hz': 50.0,
             'field_oriented_teleop': True,
         }],
+    )
+
+    wait_for_demo_scan = ExecuteProcess(
+        cmd=[
+            'bash',
+            '-lc',
+            'echo "Waiting for /scan before starting demo controls..."; '
+            'until ros2 topic echo /scan --once >/dev/null 2>&1; do sleep 1; done; '
+            'echo "/scan is publishing; starting demo controls."',
+        ],
+        output='screen',
+    )
+
+    start_demo_controls = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=wait_for_demo_scan,
+            on_exit=[lift_arm, demo_mode, cmd_arbiter],
+        ),
     )
 
     return LaunchDescription([
         use_sim_time,
         autostart,
         use_slam,
+        use_lidar,
         use_apriltags,
         nav2_params,
         joy_topic,
@@ -228,7 +252,6 @@ def generate_launch_description():
         pov_right_yaw,
         waypoint_save_hold_sec,
         research_stack,
-        lift_arm,
-        demo_mode,
-        cmd_arbiter,
+        wait_for_demo_scan,
+        start_demo_controls,
     ])

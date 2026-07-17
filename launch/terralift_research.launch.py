@@ -3,8 +3,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, EmitEvent, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -28,6 +28,7 @@ def generate_launch_description():
     )
 
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
+    use_lidar = DeclareLaunchArgument('use_lidar', default_value='true')
     enable_trial_runner = DeclareLaunchArgument('enable_trial_runner', default_value='true')
     auto_close = DeclareLaunchArgument('auto_close', default_value='true')
     record_bag = DeclareLaunchArgument('record_bag', default_value='true')
@@ -107,6 +108,7 @@ def generate_launch_description():
 
     rplidar = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_share, 'launch', 'rplidar.launch.py')),
+        condition=IfCondition(LaunchConfiguration('use_lidar')),
     )
 
     drivetrain = Node(
@@ -117,6 +119,8 @@ def generate_launch_description():
         parameters=[{
             'cmd_topic': '/cmd_mecanum',
             'odom_topic': '/odom',
+            'update_hz': 50.0,
+            'assist_enabled': False,
             'max_vx_mps': LaunchConfiguration('max_vx_mps'),
             'max_vy_mps': LaunchConfiguration('max_vy_mps'),
             'max_wz_rps': LaunchConfiguration('max_wz_rps'),
@@ -324,19 +328,9 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_slam')),
     )
 
-    slam_lifecycle_manager = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='slam_lifecycle_manager',
-        output='screen',
-        parameters=[{
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'autostart': True,
-            'bond_timeout': 15.0,
-            'node_names': ['slam_toolbox'],
-        }],
-        condition=IfCondition(LaunchConfiguration('use_slam')),
-    )
+    # slam_toolbox is started by map_generation.launch.py. Managing it here with
+    # nav2_lifecycle_manager times out waiting for a bond on the robot and aborts
+    # launch startup, so leave SLAM out of Nav2 lifecycle management.
 
     nav2_dir = get_package_share_directory('nav2_bringup')
     nav2_params_file = PathJoinSubstitution([
@@ -345,19 +339,57 @@ def generate_launch_description():
         LaunchConfiguration('nav2_params')
     ])
 
-    nav2_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(nav2_dir, 'launch', 'bringup_launch.py')),
-        launch_arguments={
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'autostart': LaunchConfiguration('autostart'),
-            'params_file': nav2_params_file,
-            'slam': 'False',
-            'use_localization': 'False',
-            'map': '',
-            'use_composition': 'False',
-            'respawn': 'False',
-            'rviz': 'False',
-        }.items(),
+    def make_nav2_launch(condition=None):
+        return IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(nav2_dir, 'launch', 'bringup_launch.py')),
+            launch_arguments={
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'autostart': LaunchConfiguration('autostart'),
+                'params_file': nav2_params_file,
+                'slam': 'False',
+                'use_localization': 'False',
+                'map': '',
+                'use_composition': 'False',
+                'respawn': 'False',
+                'rviz': 'False',
+            }.items(),
+            condition=condition,
+        )
+
+    wait_for_map = ExecuteProcess(
+        cmd=[
+            'bash',
+            '-lc',
+            'echo "Waiting for /map before starting Nav2..."; '
+            'until ros2 topic echo /map --once >/dev/null 2>&1; do sleep 1; done; '
+            'echo "/map is publishing; starting Nav2."',
+        ],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('use_slam')),
+    )
+
+    nav2_launch_after_map = make_nav2_launch()
+    start_nav2_after_map = RegisterEventHandler(
+        condition=IfCondition(LaunchConfiguration('use_slam')),
+        event_handler=OnProcessExit(
+            target_action=wait_for_map,
+            on_exit=[nav2_launch_after_map],
+        ),
+    )
+
+    nav2_launch_without_slam = make_nav2_launch(
+        condition=UnlessCondition(LaunchConfiguration('use_slam')),
+    )
+
+    wait_for_initial_scan = ExecuteProcess(
+        cmd=[
+            'bash',
+            '-lc',
+            'echo "Waiting for initial /scan before starting robot stack..."; '
+            'until ros2 topic echo /scan --once >/dev/null 2>&1; do sleep 1; done; '
+            'echo "Initial /scan is publishing; starting robot stack."',
+        ],
+        output='screen',
     )
 
     research_trial_runner = Node(
@@ -399,7 +431,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        use_sim_time, autostart, nav2_params, use_slam, enable_trial_runner,
+        use_sim_time, autostart, nav2_params, use_slam, use_lidar, enable_trial_runner,
         auto_close, record_bag, record_all_topics, bag_base_dir,
         trial_prefix, environment_id, trial_notes, parameter_set_id,
         nav2_version, robot_model, robot_firmware_driver_versions,
@@ -412,21 +444,34 @@ def generate_launch_description():
         cam_x, cam_y, cam_z, cam_roll, cam_pitch, cam_yaw,
         apriltag_params, tag_map_file,
 
-        imu, rplidar, drivetrain, led_node,
+        # Let RPLIDAR negotiate and publish a real scan before starting heavy nodes.
+        rplidar,
         base_to_laser_tf,
         base_to_imu_tf,
         base_to_camera_link_tf,
         camera_link_to_optical_tf,
         camera_optical_to_camera_alias_tf,
-        camera,
-        apriltag,
-        tag_snapper,
-        open_loop_odom,
-        ekf_node,
-        cmd_adapter,
-        slam,
-        slam_lifecycle_manager,
-        nav2_launch,
-        research_trial_runner,
-        shutdown_on_trial_runner_exit,
+        wait_for_initial_scan,
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=wait_for_initial_scan,
+                on_exit=[
+                    imu,
+                    drivetrain,
+                    led_node,
+                    camera,
+                    apriltag,
+                    tag_snapper,
+                    open_loop_odom,
+                    ekf_node,
+                    cmd_adapter,
+                    slam,
+                    wait_for_map,
+                    start_nav2_after_map,
+                    nav2_launch_without_slam,
+                    research_trial_runner,
+                    shutdown_on_trial_runner_exit,
+                ],
+            ),
+        ),
     ])
