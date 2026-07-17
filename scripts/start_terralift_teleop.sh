@@ -20,6 +20,7 @@ WIFI_ONLY_WAIT_SEC="${TERRALIFT_WIFI_ONLY_WAIT_SEC:-0}"
 DDS_CONFIG="/tmp/terralift_cyclonedds_${USER}.xml"
 STATUS_ONLY="false"
 NO_ROBOT="false"
+DDS_CONFIGURED="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -178,12 +179,83 @@ try_home_on_aux_wifi() {
   nmcli connection up "$clone" ifname "$aux" >/dev/null 2>&1 || true
 }
 
+ssh_host() {
+  local candidate="$1"
+  candidate="${candidate#*@}"
+  echo "$candidate"
+}
+
+is_ipv4_literal() {
+  [[ "$1" =~ ^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$ ]]
+}
+
+resolve_ipv4() {
+  local host="$1"
+  if is_ipv4_literal "$host"; then
+    echo "$host"
+    return 0
+  fi
+
+  if command -v getent >/dev/null 2>&1; then
+    getent ahostsv4 "$host" | awk '{ print $1; exit }'
+    return 0
+  fi
+
+  echo "$host"
+}
+
+iface_addr_for_route() {
+  local host="$1"
+  local ip route iface addr
+  ip="$(resolve_ipv4 "$host")"
+  [[ -n "$ip" ]] || return 1
+
+  route="$(ip -o route get "$ip" 2>/dev/null | head -n 1)" || return 1
+  iface="$(awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }' <<<"$route")"
+  addr="$(awk '{ for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit } }' <<<"$route")"
+
+  if [[ -n "$iface" && -z "$addr" ]]; then
+    addr="$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }')"
+  fi
+
+  [[ -n "$iface" && -n "$addr" ]] || return 1
+  echo "$iface $addr $host"
+}
+
+routed_robot_iface() {
+  local candidate host routed
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    host="$(ssh_host "$candidate")"
+    routed="$(iface_addr_for_route "$host" || true)"
+    if [[ -n "$routed" ]]; then
+      echo "$routed"
+      return 0
+    fi
+  done < <(robot_ssh_candidates)
+}
 configure_dds() {
-  local iface_addr iface addr
-  iface_addr="$(active_robot_iface || true)"
-  if [[ -n "$iface_addr" ]]; then
-    iface="${iface_addr%% *}"
-    addr="${iface_addr##* }"
+  local iface_addr iface addr routed rest source_desc
+  routed="$(iface_addr_for_route "$(ssh_host "$ACTIVE_ROBOT_SSH")" || true)"
+  if [[ -z "$routed" ]]; then
+    routed="$(routed_robot_iface || true)"
+  fi
+
+  if [[ -n "$routed" ]]; then
+    iface="${routed%% *}"
+    rest="${routed#* }"
+    addr="${rest%% *}"
+    source_desc="route to ${rest#* }"
+  else
+    iface_addr="$(active_robot_iface || true)"
+    if [[ -n "$iface_addr" ]]; then
+      iface="${iface_addr%% *}"
+      addr="${iface_addr##* }"
+      source_desc="Terralift AP interface"
+    fi
+  fi
+
+  if [[ -n "${iface:-}" && -n "${addr:-}" ]]; then
     cat > "$DDS_CONFIG" <<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config">
@@ -199,23 +271,46 @@ configure_dds() {
 </CycloneDDS>
 EOF
     export CYCLONEDDS_URI="file://$DDS_CONFIG"
-    echo "CycloneDDS pinned to $iface at $addr"
+    echo "CycloneDDS pinned to $iface at $addr ($source_desc)"
+    DDS_CONFIGURED="true"
   elif [[ -f "$HOME/cyclonedds.xml" ]]; then
     export CYCLONEDDS_URI="file://$HOME/cyclonedds.xml"
-    echo "WARNING: no 10.42.0.x interface found; falling back to $CYCLONEDDS_URI"
+    echo "WARNING: could not auto-select a DDS interface; falling back to $CYCLONEDDS_URI"
+    DDS_CONFIGURED="true"
   else
     unset CYCLONEDDS_URI || true
-    echo "WARNING: no 10.42.0.x interface and no $HOME/cyclonedds.xml. DDS will use defaults."
+    echo "WARNING: could not auto-select a DDS interface and no $HOME/cyclonedds.xml exists. DDS will use defaults."
+    DDS_CONFIGURED="true"
+  fi
+
+  if command -v ros2 >/dev/null 2>&1; then
+    ros2 daemon stop >/dev/null 2>&1 || true
+    ros2 daemon start >/dev/null 2>&1 || true
   fi
 }
 
 robot_ssh_candidates() {
-  printf '%s\n' "$ROBOT_SSH"
+  local candidate seen=""
+
+  emit_candidate() {
+    local item="$1"
+    [[ -n "$item" ]] || return 0
+    case " $seen " in
+      *" $item "*) return 0;;
+    esac
+    seen="$seen $item"
+    printf '%s\n' "$item"
+  }
+
+  if active_robot_iface >/dev/null; then
+    emit_candidate "ubuntu@10.42.0.1"
+  fi
+
+  emit_candidate "$ROBOT_SSH"
   for candidate in $ROBOT_SSH_FALLBACKS; do
-    [[ "$candidate" == "$ROBOT_SSH" ]] || printf '%s\n' "$candidate"
+    emit_candidate "$candidate"
   done
 }
-
 jumpstart_robot() {
   if [[ "$NO_ROBOT" == "true" ]]; then
     echo "Skipping robot jumpstart (--no-robot)."
@@ -229,6 +324,9 @@ jumpstart_robot() {
     if ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new "$candidate" \
         "~/terralift_ws/bin/start_demo_mode.sh --nav2-params '$ROBOT_NAV2_PARAMS' --use-apriltags '$ROBOT_USE_APRILTAGS'"; then
       ACTIVE_ROBOT_SSH="$candidate"
+      if [[ "$DDS_CONFIGURED" == "true" ]]; then
+        configure_dds
+      fi
       echo "Robot demo start command completed via $ACTIVE_ROBOT_SSH."
       return 0
     fi
@@ -281,11 +379,17 @@ show_status() {
 }
 
 warn_robot_network() {
+  local routed rest
   if active_robot_iface >/dev/null; then
     return 0
   fi
 
   echo "WARNING: this laptop does not currently have a 10.42.0.x Terralift robot-network address."
+  routed="$(routed_robot_iface || true)"
+  if [[ -n "$routed" ]]; then
+    rest="${routed#* }"
+    echo "It can route to ${rest#* } via ${routed%% *} at ${rest%% *}, so home-network ROS may still work."
+  fi
   echo "ROS discovery may not see /scan, /map, /tf, or /odom from the robot."
   echo "You can still continue if you are intentionally reaching the robot another way."
   echo
@@ -398,6 +502,14 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-17}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 
 source_ros
+
+first_robot_candidate=""
+while IFS= read -r first_robot_candidate; do
+  break
+done < <(robot_ssh_candidates)
+if [[ -n "$first_robot_candidate" ]]; then
+  ACTIVE_ROBOT_SSH="$first_robot_candidate"
+fi
 
 echo "Terralift teleop launcher"
 echo "Robot Wi-Fi profile: $ROBOT_WIFI_PROFILE on main Wi-Fi $PRIMARY_WIFI_DEVICE (auto Wi-Fi: $AUTO_WIFI; Wi-Fi Fix is separate)"
