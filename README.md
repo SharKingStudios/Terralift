@@ -36,8 +36,6 @@ The current robot/laptop setup assumes:
 - Teleop laptop launcher path: `~/terralift_ws/start_terralift_teleop.sh`
 - Robot helper path used by the laptop: `~/terralift_ws/bin/start_demo_mode.sh`
 
-The laptop launcher writes a temporary CycloneDDS config that pins discovery to the active `10.42.0.x` robot-network interface when that network is available.
-
 ## Build
 
 From the robot or another ROS 2 workspace:
