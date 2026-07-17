@@ -85,6 +85,7 @@ class ResearchTrialRunner(Node):
         self.declare_parameter('goal_yaw', 0.0)
         self.declare_parameter('goal_pose_topic', '/research/goal_pose')
         self.declare_parameter('event_topic', '/research/trial_event')
+        self.declare_parameter('led_topic', '/led/state')
         self.declare_parameter('collision_monitor_state_topic', '/collision_monitor_state')
         self.declare_parameter('cmd_vel_smoothed_topic', '/cmd_vel_smoothed')
         self.declare_parameter('cmd_vel_safe_topic', '/cmd_vel_nav_safe')
@@ -140,6 +141,7 @@ class ResearchTrialRunner(Node):
         self.goal_yaw = float(self.get_parameter('goal_yaw').value)
         self.goal_pose_topic = str(self.get_parameter('goal_pose_topic').value)
         self.event_topic = str(self.get_parameter('event_topic').value)
+        self.led_topic = str(self.get_parameter('led_topic').value)
         self.collision_monitor_state_topic = str(self.get_parameter('collision_monitor_state_topic').value)
         self.cmd_vel_smoothed_topic = str(self.get_parameter('cmd_vel_smoothed_topic').value)
         self.cmd_vel_safe_topic = str(self.get_parameter('cmd_vel_safe_topic').value)
@@ -169,6 +171,8 @@ class ResearchTrialRunner(Node):
         self.last_cmd_safe = Twist()
         self.safety_stop_active = False
         self.pending_exit_code = 0
+        self.following_started = False
+        self.last_led_mode = ''
 
         self.controller_id, self.planner_id = self._parse_nav2_config_name(self.nav2_params_name)
         self.config_id = f'{self.controller_id}_{self.planner_id}'
@@ -192,6 +196,7 @@ class ResearchTrialRunner(Node):
         )
         self.event_pub = self.create_publisher(String, self.event_topic, event_qos)
         self.goal_pub = self.create_publisher(PoseStamped, self.goal_pose_topic, event_qos)
+        self.led_pub = self.create_publisher(String, self.led_topic, 10)
 
         self.create_subscription(
             CollisionMonitorState,
@@ -214,6 +219,7 @@ class ResearchTrialRunner(Node):
             'config_id': self.config_id,
             'trial_dir': str(self.trial_dir),
         })
+        self._set_led_mode('IDLE_CONFETTI')
 
         self.get_logger().info(
             f'Research trial runner ready for {self.trial_id}; '
@@ -237,6 +243,7 @@ class ResearchTrialRunner(Node):
             'startup_delay_sec': self.startup_delay_sec,
         })
         self._write_metadata(status='starting')
+        self._set_led_mode('PLANNING_YELLOW')
 
         if self.record_bag:
             self._start_bag_recording()
@@ -321,6 +328,8 @@ class ResearchTrialRunner(Node):
         goal = self._build_goal_pose()
         self.goal_pub.publish(goal)
         self._publish_event('goal_published', self._pose_dict(goal))
+        self.following_started = False
+        self._set_led_mode('PLANNING_YELLOW')
 
         action_goal = NavigateToPose.Goal()
         action_goal.pose = goal
@@ -350,6 +359,9 @@ class ResearchTrialRunner(Node):
 
     def _feedback_cb(self, feedback_msg) -> None:
         feedback = feedback_msg.feedback
+        if not self.following_started:
+            self.following_started = True
+            self._set_led_mode('FOLLOWING_GREEN_FLASH')
         self._publish_event('goal_feedback', {
             'distance_remaining_m': float(feedback.distance_remaining),
             'number_of_recoveries': int(feedback.number_of_recoveries),
@@ -418,6 +430,7 @@ class ResearchTrialRunner(Node):
                 'reason': result.reason,
             })
             self.pending_exit_code = 0
+            self._set_led_mode('IDLE_CONFETTI')
         else:
             self._publish_event('trial_complete', {
                 'trial_id': self.trial_id,
@@ -427,6 +440,7 @@ class ResearchTrialRunner(Node):
                 'error_msg': result.error_msg,
             })
             self.pending_exit_code = 1
+            self._set_led_mode('RED')
 
         self._write_metadata(
             status='complete',
@@ -469,6 +483,12 @@ class ResearchTrialRunner(Node):
         msg.data = json.dumps(body, sort_keys=True)
         self.event_pub.publish(msg)
         self.get_logger().info(f'EVENT {name}: {json.dumps(payload or {}, sort_keys=True)}')
+
+    def _set_led_mode(self, mode: str) -> None:
+        if mode == self.last_led_mode:
+            return
+        self.last_led_mode = mode
+        self.led_pub.publish(String(data=mode))
 
     def _write_metadata(self, status: str, final_result: Optional[Dict[str, Any]] = None) -> None:
         metadata = {

@@ -3,8 +3,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, EmitEvent, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -16,17 +16,20 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('terralift')
+    ekf_config = os.path.join(pkg_share, 'config', 'ekf_imu.yaml')
 
     use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='false')
     autostart = DeclareLaunchArgument('autostart', default_value='true')
 
     nav2_params = DeclareLaunchArgument(
         'nav2_params',
-        default_value='rpp_smac2d.yaml',
+        default_value='rpp_smac2d_course_valid.yaml',
         description='Nav2 params YAML in terralift/nav2/'
     )
 
     use_slam = DeclareLaunchArgument('use_slam', default_value='true')
+    use_lidar = DeclareLaunchArgument('use_lidar', default_value='true')
+    enable_trial_runner = DeclareLaunchArgument('enable_trial_runner', default_value='true')
     auto_close = DeclareLaunchArgument('auto_close', default_value='true')
     record_bag = DeclareLaunchArgument('record_bag', default_value='true')
     record_all_topics = DeclareLaunchArgument('record_all_topics', default_value='false')
@@ -41,10 +44,12 @@ def generate_launch_description():
     startup_delay_sec = DeclareLaunchArgument('startup_delay_sec', default_value='4.0')
     goal_timeout_sec = DeclareLaunchArgument('goal_timeout_sec', default_value='90.0')
     goal_frame = DeclareLaunchArgument('goal_frame', default_value='map')
-    goal_x = DeclareLaunchArgument('goal_x', default_value='1.0')
-    goal_y = DeclareLaunchArgument('goal_y', default_value='0.0')
+    goal_x = DeclareLaunchArgument('goal_x', default_value='2.5')
+    goal_y = DeclareLaunchArgument('goal_y', default_value='3.4')
     goal_yaw = DeclareLaunchArgument('goal_yaw', default_value='0.0')
     cmd_vel_input_topic = DeclareLaunchArgument('cmd_vel_input_topic', default_value='/cmd_vel_nav_safe')
+    odom_cmd_topic = DeclareLaunchArgument('odom_cmd_topic', default_value='/cmd_vel_nav_safe')
+    odom_vel_response_tau = DeclareLaunchArgument('odom_vel_response_tau', default_value='0.18')
 
     # TF offsets
     laser_x = DeclareLaunchArgument('laser_x', default_value='0.0')
@@ -62,8 +67,8 @@ def generate_launch_description():
     imu_yaw   = DeclareLaunchArgument('imu_yaw',   default_value='0.0')
 
     # Cmd scaling
-    max_vx = DeclareLaunchArgument('max_vx_mps', default_value='1.2')
-    max_vy = DeclareLaunchArgument('max_vy_mps', default_value='1.2')
+    max_vx = DeclareLaunchArgument('max_vx_mps', default_value='1.22')
+    max_vy = DeclareLaunchArgument('max_vy_mps', default_value='1.22')
     max_wz = DeclareLaunchArgument('max_wz_rps', default_value='3.14')
 
     # AprilTags / Camera
@@ -103,12 +108,29 @@ def generate_launch_description():
 
     rplidar = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_share, 'launch', 'rplidar.launch.py')),
+        condition=IfCondition(LaunchConfiguration('use_lidar')),
     )
 
     drivetrain = Node(
         package='terralift',
         executable='drivetrain_node',
         name='drivetrain_node',
+        output='screen',
+        parameters=[{
+            'cmd_topic': '/cmd_mecanum',
+            'odom_topic': '/odom',
+            'update_hz': 50.0,
+            'assist_enabled': False,
+            'max_vx_mps': LaunchConfiguration('max_vx_mps'),
+            'max_vy_mps': LaunchConfiguration('max_vy_mps'),
+            'max_wz_rps': LaunchConfiguration('max_wz_rps'),
+        }],
+    )
+
+    led_node = Node(
+        package='terralift',
+        executable='led_node',
+        name='led_node',
         output='screen',
     )
 
@@ -249,21 +271,38 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'imu_topic': '/imu/data',
-            'odom_topic': '/odom',
+            'cmd_vel_topic': LaunchConfiguration('odom_cmd_topic'),
+            'odom_topic': '/open_loop_odom',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
             'rate_hz': 50.0,
-            'publish_tf': True,
+            'publish_tf': False,
             'reset_pose_topic': '/tag_reset_pose',
-            'stationary_accel_thresh': 0.15,
-            'stationary_gyro_thresh': 0.10,
-            'stationary_hold_time': 0.20,
-            'bias_learn_rate': 0.6,
-            'zupt_vel_damp': 6.0,
-            'vel_decay': 0.15,
-            'max_speed': 2.5,
-            'require_imu_yaw': True,
+            'cmd_timeout': 0.35,
+            'vel_response_tau': LaunchConfiguration('odom_vel_response_tau'),
+            'idle_velocity_decay': 4.0,
+            'max_vx_mps': LaunchConfiguration('max_vx_mps'),
+            'max_vy_mps': LaunchConfiguration('max_vy_mps'),
+            'max_wz_rps': LaunchConfiguration('max_wz_rps'),
+            'use_imu_orientation': True,
+            'use_imu_gyro': True,
+            'imu_yaw_blend_gain': 2.0,
+            'imu_wz_lpf_gain': 12.0,
+            'require_imu_yaw': False,
         }],
+    )
+
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[ekf_config, {
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        }],
+        remappings=[
+            ('odometry/filtered', '/odom'),
+        ],
     )
 
     cmd_adapter = Node(
@@ -289,19 +328,9 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_slam')),
     )
 
-    slam_lifecycle_manager = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='slam_lifecycle_manager',
-        output='screen',
-        parameters=[{
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'autostart': True,
-            'bond_timeout': 15.0,
-            'node_names': ['slam_toolbox'],
-        }],
-        condition=IfCondition(LaunchConfiguration('use_slam')),
-    )
+    # slam_toolbox is started by map_generation.launch.py. Managing it here with
+    # nav2_lifecycle_manager times out waiting for a bond on the robot and aborts
+    # launch startup, so leave SLAM out of Nav2 lifecycle management.
 
     nav2_dir = get_package_share_directory('nav2_bringup')
     nav2_params_file = PathJoinSubstitution([
@@ -310,19 +339,57 @@ def generate_launch_description():
         LaunchConfiguration('nav2_params')
     ])
 
-    nav2_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(nav2_dir, 'launch', 'bringup_launch.py')),
-        launch_arguments={
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'autostart': LaunchConfiguration('autostart'),
-            'params_file': nav2_params_file,
-            'slam': 'False',
-            'use_localization': 'False',
-            'map': '',
-            'use_composition': 'False',
-            'respawn': 'False',
-            'rviz': 'False',
-        }.items(),
+    def make_nav2_launch(condition=None):
+        return IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(nav2_dir, 'launch', 'bringup_launch.py')),
+            launch_arguments={
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'autostart': LaunchConfiguration('autostart'),
+                'params_file': nav2_params_file,
+                'slam': 'False',
+                'use_localization': 'False',
+                'map': '',
+                'use_composition': 'False',
+                'respawn': 'False',
+                'rviz': 'False',
+            }.items(),
+            condition=condition,
+        )
+
+    wait_for_map = ExecuteProcess(
+        cmd=[
+            'bash',
+            '-lc',
+            'echo "Waiting for /map before starting Nav2..."; '
+            'until ros2 topic echo /map --once >/dev/null 2>&1; do sleep 1; done; '
+            'echo "/map is publishing; starting Nav2."',
+        ],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('use_slam')),
+    )
+
+    nav2_launch_after_map = make_nav2_launch()
+    start_nav2_after_map = RegisterEventHandler(
+        condition=IfCondition(LaunchConfiguration('use_slam')),
+        event_handler=OnProcessExit(
+            target_action=wait_for_map,
+            on_exit=[nav2_launch_after_map],
+        ),
+    )
+
+    nav2_launch_without_slam = make_nav2_launch(
+        condition=UnlessCondition(LaunchConfiguration('use_slam')),
+    )
+
+    wait_for_initial_scan = ExecuteProcess(
+        cmd=[
+            'bash',
+            '-lc',
+            'echo "Waiting for initial /scan before starting robot stack..."; '
+            'until ros2 topic echo /scan --once >/dev/null 2>&1; do sleep 1; done; '
+            'echo "Initial /scan is publishing; starting robot stack."',
+        ],
+        output='screen',
     )
 
     research_trial_runner = Node(
@@ -330,6 +397,7 @@ def generate_launch_description():
         executable='research_trial_runner',
         name='research_trial_runner',
         output='screen',
+        condition=IfCondition(LaunchConfiguration('enable_trial_runner')),
         parameters=[{
             'record_bag': LaunchConfiguration('record_bag'),
             'record_all_topics': LaunchConfiguration('record_all_topics'),
@@ -355,19 +423,20 @@ def generate_launch_description():
     )
 
     shutdown_on_trial_runner_exit = RegisterEventHandler(
-        OnProcessExit(
+        condition=IfCondition(LaunchConfiguration('enable_trial_runner')),
+        event_handler=OnProcessExit(
             target_action=research_trial_runner,
             on_exit=[EmitEvent(event=Shutdown(reason='research trial runner exited'))],
         )
     )
 
     return LaunchDescription([
-        use_sim_time, autostart, nav2_params, use_slam,
+        use_sim_time, autostart, nav2_params, use_slam, use_lidar, enable_trial_runner,
         auto_close, record_bag, record_all_topics, bag_base_dir,
         trial_prefix, environment_id, trial_notes, parameter_set_id,
         nav2_version, robot_model, robot_firmware_driver_versions,
         startup_delay_sec, goal_timeout_sec, goal_frame, goal_x, goal_y, goal_yaw,
-        cmd_vel_input_topic,
+        cmd_vel_input_topic, odom_cmd_topic, odom_vel_response_tau,
         laser_x, laser_y, laser_z, laser_roll, laser_pitch, laser_yaw,
         imu_x, imu_y, imu_z, imu_roll, imu_pitch, imu_yaw,
         max_vx, max_vy, max_wz,
@@ -375,20 +444,34 @@ def generate_launch_description():
         cam_x, cam_y, cam_z, cam_roll, cam_pitch, cam_yaw,
         apriltag_params, tag_map_file,
 
-        imu, rplidar, drivetrain,
+        # Let RPLIDAR negotiate and publish a real scan before starting heavy nodes.
+        rplidar,
         base_to_laser_tf,
         base_to_imu_tf,
         base_to_camera_link_tf,
         camera_link_to_optical_tf,
         camera_optical_to_camera_alias_tf,
-        camera,
-        apriltag,
-        tag_snapper,
-        open_loop_odom,
-        cmd_adapter,
-        slam,
-        slam_lifecycle_manager,
-        nav2_launch,
-        research_trial_runner,
-        shutdown_on_trial_runner_exit,
+        wait_for_initial_scan,
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=wait_for_initial_scan,
+                on_exit=[
+                    imu,
+                    drivetrain,
+                    led_node,
+                    camera,
+                    apriltag,
+                    tag_snapper,
+                    open_loop_odom,
+                    ekf_node,
+                    cmd_adapter,
+                    slam,
+                    wait_for_map,
+                    start_nav2_after_map,
+                    nav2_launch_without_slam,
+                    research_trial_runner,
+                    shutdown_on_trial_runner_exit,
+                ],
+            ),
+        ),
     ])

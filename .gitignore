@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ROS 2 workspace outputs
+build/
+install/
+log/
+
+# Local runtime logs and bags
+terralift_run_logs/
+*.db3
+*.mcap
+
+# Local hotfix/testing backups
+*.bak
+*.bak.*
