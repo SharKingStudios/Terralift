@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="spatial_warehouse">
+    <physics name="1ms" type="ignored"><max_step_size>0.001</max_step_size><real_time_factor>1.0</real_time_factor></physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <light type="directional" name="warehouse_lights"><pose>0 0 10 0 0 0</pose><cast_shadows>true</cast_shadows><diffuse>0.95 0.95 0.95 1</diffuse><direction>-0.2 0.1 -0.95</direction></light>
+    <model name="ground"><static>true</static><link name="floor"><collision name="collision"><geometry><box><size>24 20 0.1</size></box></geometry><pose>0 0 -0.05 0 0 0</pose></collision><visual name="concrete"><geometry><box><size>24 20 0.1</size></box></geometry><pose>0 0 -0.05 0 0 0</pose><material><diffuse>0.36 0.38 0.40 1</diffuse></material></visual></link></model>
+    <!-- A permanent central warehouse block and outer walls make the five-zone ring navigable only around its sides. -->
+    <model name="north_wall"><static>true</static><link name="wall"><collision name="c"><geometry><box><size>24 0.3 2.4</size></box></geometry><pose>0 9.85 1.2 0 0 0</pose></collision><visual name="v"><geometry><box><size>24 0.3 2.4</size></box></geometry><pose>0 9.85 1.2 0 0 0</pose><material><diffuse>0.72 0.72 0.70 1</diffuse></material></visual></link></model>
+    <model name="south_wall"><static>true</static><link name="wall"><collision name="c"><geometry><box><size>24 0.3 2.4</size></box></geometry><pose>0 -9.85 1.2 0 0 0</pose></collision><visual name="v"><geometry><box><size>24 0.3 2.4</size></box></geometry><pose>0 -9.85 1.2 0 0 0</pose><material><diffuse>0.72 0.72 0.70 1</diffuse></material></visual></link></model>
+    <model name="west_wall"><static>true</static><link name="wall"><collision name="c"><geometry><box><size>0.3 20 2.4</size></box></geometry><pose>-11.85 0 1.2 0 0 0</pose></collision><visual name="v"><geometry><box><size>0.3 20 2.4</size></box></geometry><pose>-11.85 0 1.2 0 0 0</pose><material><diffuse>0.72 0.72 0.70 1</diffuse></material></visual></link></model>
+    <model name="east_wall"><static>true</static><link name="wall"><collision name="c"><geometry><box><size>0.3 20 2.4</size></box></geometry><pose>11.85 0 1.2 0 0 0</pose></collision><visual name="v"><geometry><box><size>0.3 20 2.4</size></box></geometry><pose>11.85 0 1.2 0 0 0</pose><material><diffuse>0.72 0.72 0.70 1</diffuse></material></visual></link></model>
+    <model name="central_storage_block"><static>true</static><link name="wall"><collision name="c"><geometry><box><size>8.5 4.5 2.4</size></box></geometry><pose>0 0 1.2 0 0 0</pose></collision><visual name="v"><geometry><box><size>8.5 4.5 2.4</size></box></geometry><pose>0 0 1.2 0 0 0</pose><material><diffuse>0.16 0.18 0.20 1</diffuse></material></visual></link></model>
+    <!-- Colored physical zone mats: entity names are A–E in Gazebo's scene tree and colors make them immediately distinguishable. -->
+    <model name="ROOM_A"><static>true</static><link name="mat"><visual name="A_blue"><geometry><box><size>3 3 0.02</size></box></geometry><pose>-7 -5 0.012 0 0 0</pose><material><diffuse>0.05 0.24 0.85 0.75</diffuse></material></visual></link></model>
+    <model name="ROOM_B"><static>true</static><link name="mat"><visual name="B_green"><geometry><box><size>3 3 0.02</size></box></geometry><pose>-7 4 0.012 0 0 0</pose><material><diffuse>0.08 0.72 0.28 0.75</diffuse></material></visual></link></model>
+    <model name="ROOM_C"><static>true</static><link name="mat"><visual name="C_yellow"><geometry><box><size>3 2.5 0.02</size></box></geometry><pose>0 5 0.012 0 0 0</pose><material><diffuse>0.90 0.72 0.04 0.75</diffuse></material></visual></link></model>
+    <model name="ROOM_D"><static>true</static><link name="mat"><visual name="D_red"><geometry><box><size>3 3 0.02</size></box></geometry><pose>7 4 0.012 0 0 0</pose><material><diffuse>0.82 0.08 0.08 0.75</diffuse></material></visual></link></model>
+    <model name="ROOM_E"><static>true</static><link name="mat"><visual name="E_purple"><geometry><box><size>3 3 0.02</size></box></geometry><pose>7 -5 0.012 0 0 0</pose><material><diffuse>0.58 0.08 0.75 0.75</diffuse></material></visual></link></model>
+    <!-- Flag A at room A; distinct B flags are separately movable entities. -->
+    <model name="flag_A_1"><static>true</static><link name="flag"><visual name="pole"><geometry><cylinder><radius>0.04</radius><length>1.8</length></cylinder></geometry><pose>-7 -6.2 0.9 0 0 0</pose><material><diffuse>0.08 0.08 0.08 1</diffuse></material></visual><visual name="A_flag"><geometry><box><size>0.7 0.04 0.45</size></box></geometry><pose>-6.66 -6.2 1.5 0 0 0</pose><material><diffuse>0.05 0.24 0.85 1</diffuse></material></visual></link></model>
+    <model name="flag_B_D_1"><static>true</static><link name="flag"><visual name="pole"><geometry><cylinder><radius>0.04</radius><length>1.8</length></cylinder></geometry><pose>7 3 0.9 0 0 0</pose><material><diffuse>0.08 0.08 0.08 1</diffuse></material></visual><visual name="B_flag"><geometry><box><size>0.7 0.04 0.45</size></box></geometry><pose>7.34 3 1.5 0 0 0</pose><material><diffuse>0.95 0.85 0.02 1</diffuse></material></visual></link></model>
+    <model name="flag_B_E_1"><static>true</static><link name="flag"><visual name="pole"><geometry><cylinder><radius>0.04</radius><length>1.8</length></cylinder></geometry><pose>7 -6.2 0.9 0 0 0</pose><material><diffuse>0.08 0.08 0.08 1</diffuse></material></visual><visual name="B_flag"><geometry><box><size>0.7 0.04 0.45</size></box></geometry><pose>7.34 -6.2 1.5 0 0 0</pose><material><diffuse>0.95 0.85 0.02 1</diffuse></material></visual></link></model>
+    <include><uri>model://terralift_mecanum</uri><name>terralift_mecanum</name></include>
+  </world>
+</sdf>

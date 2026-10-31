@@ -1,0 +1,5 @@
+# Python dependencies used only by the Gazebo spatial-belief experiment.
+# ROS packages are installed with apt; see README_SPATIAL_EXPERIMENT.md.
+anthropic==0.75.0
+networkx==3.4.2
+python-dotenv==1.0.1

@@ -24,6 +24,10 @@ setup(
         ('share/' + package_name + '/config',
             glob('config/*.yaml')),
 
+        # Scenario definitions are kept distinct from robot hardware config.
+        ('share/' + package_name + '/config/spatial_scenarios',
+            glob('config/spatial_scenarios/*.json')),
+
         # Nav2 parameter files
         ('share/' + package_name + '/nav2',
             glob('nav2/*.yaml')),
@@ -31,6 +35,14 @@ setup(
         # Helper shell scripts
         ('share/' + package_name + '/scripts',
             glob('scripts/*.sh')),
+
+        # Gazebo Harmonic experiment resources
+        ('share/' + package_name + '/worlds',
+            glob('worlds/*.sdf')),
+        ('share/' + package_name + '/models/terralift_mecanum',
+            glob('models/terralift_mecanum/*')),
+        ('share/' + package_name + '/models/passage_blocker',
+            glob('models/passage_blocker/*')),
 
         # Desktop shortcut templates
         ('share/' + package_name + '/desktop',
@@ -79,6 +91,8 @@ setup(
             'demo_mode_node = terralift.demo_mode_node:main',
             'rosbag_node = terralift.rosbag_node:main',
             'research_trial_runner = terralift.research_trial_runner:main',
+            'spatial_trial_runner = terralift.spatial_trial_runner:main',
+            'spatial_odom_tf = terralift.spatial_odom_tf:main',
         ],
     },
 )

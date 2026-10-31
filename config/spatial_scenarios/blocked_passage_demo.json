@@ -1,0 +1,27 @@
+{
+  "scenario_id": "blocked_passage_demo",
+  "title": "Legacy direct-passage inspection scenario",
+  "world_name": "spatial_warehouse",
+  "robot_start": {"x": -7.0, "y": -5.0, "yaw": 0.0},
+  "rooms": [
+    {"id": "A", "pose": {"x": -7.0, "y": -5.0}},
+    {"id": "B", "pose": {"x": -7.0, "y": 4.0}},
+    {"id": "C", "pose": {"x": 0.0, "y": 5.0}},
+    {"id": "D", "pose": {"x": 7.0, "y": 4.0}},
+    {"id": "E", "pose": {"x": 7.0, "y": -5.0}}
+  ],
+  "passages": [
+    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -7.0, "y": -0.5}, "blocker_pose": {"x": -7.0, "y": -0.5}},
+    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -3.0, "y": 5.0}, "blocker_pose": {"x": -3.0, "y": 5.0}},
+    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 3.0, "y": 5.0}, "blocker_pose": {"x": 3.0, "y": 5.0}},
+    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 7.0, "y": -0.5}, "blocker_pose": {"x": 7.0, "y": -0.5}},
+    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -1.0, "y": -5.0, "yaw": 0.0}, "blocker_pose": {"x": 0.0, "y": -5.5, "yaw": 0.0}}
+  ],
+  "entities": [
+    {"id": "flag_A_1", "type": "A", "room_id": "A"},
+    {"id": "flag_B_D_1", "type": "B", "room_id": "D"},
+    {"id": "flag_B_E_1", "type": "B", "room_id": "E"}
+  ],
+  "question": {"id": "farthest_b_from_a", "family": "semantic_distance_ranking", "text": "Which room containing a B flag is farthest from the A flag by the shortest currently traversable route?", "source_entity_type": "A", "candidate_entity_type": "B"},
+  "hidden_changes": [{"type": "block_passage", "passage_id": "A_E"}]
+}
