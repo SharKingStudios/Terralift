@@ -2,8 +2,9 @@
 <sdf version="1.9">
   <model name="passage_blocker"><static>true</static>
     <link name="barrier"><pose>0 0 0 0 0 0</pose>
-      <collision name="collision"><geometry><box><size>0.45 7.15 1.5</size></box></geometry><pose>0 0 0.75 0 0 0</pose></collision>
-      <visual name="warning_orange"><geometry><box><size>0.45 7.15 1.5</size></box></geometry><pose>0 0 0.75 0 0 0</pose><material><diffuse>1 0.22 0.02 1</diffuse><emissive>0.18 0.02 0 1</emissive></material></visual>
+      <!-- Long side spans the 2.4 m corridor width; yaw selects its axis. -->
+      <collision name="collision"><geometry><box><size>0.45 2.7 1.5</size></box></geometry><pose>0 0 0.75 0 0 0</pose></collision>
+      <visual name="warning_orange"><geometry><box><size>0.45 2.7 1.5</size></box></geometry><pose>0 0 0.75 0 0 0</pose><material><diffuse>1 0.22 0.02 1</diffuse><emissive>0.18 0.02 0 1</emissive></material></visual>
     </link>
   </model>
 </sdf>

@@ -2,20 +2,20 @@
   "scenario_id": "blocked_passage_demo",
   "title": "Legacy direct-passage inspection scenario",
   "world_name": "spatial_warehouse",
-  "robot_start": {"x": -7.0, "y": -5.0, "yaw": 0.0},
+  "robot_start": {"x": -8.65, "y": -6.0, "yaw": 0.0},
   "rooms": [
-    {"id": "A", "pose": {"x": -7.0, "y": -5.0}},
-    {"id": "B", "pose": {"x": -7.0, "y": 4.0}},
-    {"id": "C", "pose": {"x": 0.0, "y": 5.0}},
-    {"id": "D", "pose": {"x": 7.0, "y": 4.0}},
-    {"id": "E", "pose": {"x": 7.0, "y": -5.0}}
+    {"id": "A", "pose": {"x": -8.65, "y": -6.0}},
+    {"id": "B", "pose": {"x": -8.65, "y": 6.0}},
+    {"id": "C", "pose": {"x": 0.0, "y": 6.0}},
+    {"id": "D", "pose": {"x": 8.65, "y": 6.0}},
+    {"id": "E", "pose": {"x": 8.65, "y": -6.0}}
   ],
   "passages": [
-    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -7.0, "y": -0.5}, "blocker_pose": {"x": -7.0, "y": -0.5}},
-    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -3.0, "y": 5.0}, "blocker_pose": {"x": -3.0, "y": 5.0}},
-    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 3.0, "y": 5.0}, "blocker_pose": {"x": 3.0, "y": 5.0}},
-    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 7.0, "y": -0.5}, "blocker_pose": {"x": 7.0, "y": -0.5}},
-    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -1.0, "y": -5.0, "yaw": 0.0}, "blocker_pose": {"x": 0.0, "y": -5.5, "yaw": 0.0}}
+    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -8.0, "y": -2.0, "yaw": 1.57}, "blocker_pose": {"x": -8.0, "y": 0.0, "yaw": 1.57}},
+    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -6.2, "y": 6.0, "yaw": 0.0}, "blocker_pose": {"x": -4.2, "y": 6.0, "yaw": 0.0}},
+    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 2.8, "y": 6.0, "yaw": 0.0}, "blocker_pose": {"x": 4.8, "y": 6.0, "yaw": 0.0}},
+    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 8.0, "y": 2.0, "yaw": -1.57}, "blocker_pose": {"x": 8.0, "y": 0.0, "yaw": 1.57}},
+    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -2.0, "y": -6.0, "yaw": 0.0}, "blocker_pose": {"x": 0.0, "y": -6.0, "yaw": 0.0}}
   ],
   "entities": [
     {"id": "flag_A_1", "type": "A", "room_id": "A"},

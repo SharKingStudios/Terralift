@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 from terralift.claude_spatial_agent import ClaudeProtocolError, parse_tool_blocks
 from terralift.spatial_data import TrialData
@@ -97,3 +98,25 @@ def test_passage_inspection_uses_nearest_valid_lidar_return_at_the_pose():
     assert observed["observed_status"] == "blocked"
     assert observed["source"] == "nearby_lidar"
     assert observed["nearest_lidar_range_m"] == 0.8
+
+
+def test_passage_inspection_ignores_nearby_corridor_side_walls():
+    subject = scenario()
+    adapter = ProximityObservationAdapter(subject)
+    adapter.update_pose(subject.passages["A_E"].inspection_pose)
+    # The 0.5 m returns are side walls at +/- 90 degrees. The forward passage
+    # direction is clear at 5 m, so this must remain an open observation.
+    adapter.update_scan(ScanSnapshot(
+        ranges=[0.5, 5.0, 0.5], angle_min=-1.5708,
+        angle_increment=1.5708, range_min=0.12, range_max=12.0,
+    ))
+    observed = adapter.inspect_passage("A_E")
+    assert observed["observed_status"] == "open"
+    assert observed["nearest_lidar_range_m"] == 5.0
+
+
+def test_robot_wheel_axes_match_the_rolled_wheel_link_frame():
+    root = ET.parse(Path(__file__).parents[1] / "models" / "terralift_mecanum" / "model.sdf").getroot()
+    axes = [joint.find("axis/xyz") for joint in root.findall(".//joint") if joint.attrib["name"].endswith("_joint")]
+    assert len(axes) == 4
+    assert all(axis is not None and axis.text.strip() == "0 0 -1" for axis in axes)

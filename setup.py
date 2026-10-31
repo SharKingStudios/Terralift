@@ -32,6 +32,10 @@ setup(
         ('share/' + package_name + '/nav2',
             glob('nav2/*.yaml')),
 
+        # RViz observation layout for the visual experiment mode
+        ('share/' + package_name + '/rviz',
+            glob('rviz/*.rviz')),
+
         # Helper shell scripts
         ('share/' + package_name + '/scripts',
             glob('scripts/*.sh')),
@@ -93,6 +97,7 @@ setup(
             'research_trial_runner = terralift.research_trial_runner:main',
             'spatial_trial_runner = terralift.spatial_trial_runner:main',
             'spatial_odom_tf = terralift.spatial_odom_tf:main',
+            'spatial_room_tour = terralift.spatial_room_tour:main',
         ],
     },
 )

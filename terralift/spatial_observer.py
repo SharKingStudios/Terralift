@@ -27,14 +27,16 @@ class ScanSnapshot:
 class ProximityObservationAdapter:
     """Converts scan/pose readings into explicit, logged evidence."""
 
-    # Nav2's configured 0.35 m goal tolerance plus the 0.55 m sensor mount
-    # makes a grounded blocker appear up to roughly 1.4 m away at the A_E
-    # inspection pose.  1.6 m preserves a small measurement margin.
-    def __init__(self, scenario: Scenario, inspection_tolerance_m: float = 1.5, blocked_distance_m: float = 1.6, marker_range_m: float = 2.5) -> None:
+    # Each inspection pose is two metres before the fixed candidate barrier
+    # location. The scanner is 0.55 m forward of base_link and Nav2 permits a
+    # 0.35 m goal tolerance, so a 2.0 m forward-ray threshold has margin while
+    # staying well below the distance to an open corridor's far wall.
+    def __init__(self, scenario: Scenario, inspection_tolerance_m: float = 1.5, blocked_distance_m: float = 2.0, marker_range_m: float = 2.5, passage_scan_half_angle_rad: float = 0.22) -> None:
         self.scenario = scenario
         self.inspection_tolerance_m = inspection_tolerance_m
         self.blocked_distance_m = blocked_distance_m
         self.marker_range_m = marker_range_m
+        self.passage_scan_half_angle_rad = passage_scan_half_angle_rad
         self.pose: Optional[Pose2D] = None
         self.scan: Optional[ScanSnapshot] = None
         self._observation_index = 0
@@ -53,23 +55,30 @@ class ProximityObservationAdapter:
     def _distance(first: Pose2D, second: Pose2D) -> float:
         return math.hypot(first.x - second.x, first.y - second.y)
 
-    def _scan_minimum(self) -> Optional[float]:
-        """Return the nearest real LiDAR return at an inspection pose.
+    @staticmethod
+    def _wrap_angle(angle: float) -> float:
+        return math.atan2(math.sin(angle), math.cos(angle))
 
-        Nav2 may complete at the requested position with either final yaw
-        inside its tolerance.  At a passage inspection point, a nearby return
-        anywhere in the 360-degree scan is therefore a more reliable physical
-        indicator than assuming the robot faces one fixed world direction.
-        The pose guard still prevents unrelated distant obstacles from being
-        treated as passage evidence.
+    def _scan_minimum_toward(self, target: Pose2D) -> Optional[float]:
+        """Return the nearest LiDAR range in a cone toward one doorway.
+
+        A room/corridor has nearby side walls by design, so using the minimum
+        value from the entire 360-degree scan would falsely report every
+        narrow passage as blocked. The target direction is fixed calibration
+        geometry, not dynamic truth: only the measured range decides whether
+        the spawned physical blocker is present.
         """
-        if self.scan is None:
+        if self.scan is None or self.pose is None:
             return None
+        bearing_world = math.atan2(target.y - self.pose.y, target.x - self.pose.x)
+        bearing_sensor = self._wrap_angle(bearing_world - self.pose.yaw)
         candidates: List[float] = []
-        for value in self.scan.ranges:
+        for index, value in enumerate(self.scan.ranges):
             if not math.isfinite(value):
                 continue
-            if self.scan.range_min <= value <= self.scan.range_max:
+            angle = self.scan.angle_min + index * self.scan.angle_increment
+            if (abs(self._wrap_angle(angle - bearing_sensor)) <= self.passage_scan_half_angle_rad
+                    and self.scan.range_min <= value <= self.scan.range_max):
                 candidates.append(float(value))
         return min(candidates) if candidates else None
 
@@ -86,13 +95,13 @@ class ProximityObservationAdapter:
                 "observed_status": "unobserved", "source": "pose_guard",
                 "confidence": 0.0, "robot_pose": self.pose.to_dict(), "distance_to_inspection_pose_m": pose_distance,
             }
-        nearest_range = self._scan_minimum()
+        nearest_range = self._scan_minimum_toward(passage.blocker_pose)
         if nearest_range is None:
             return {
                 "evidence_id": self._next_id(), "kind": "passage", "passage_id": passage_id,
                 "observed_status": "unobserved", "source": "lidar", "confidence": 0.0,
                 "robot_pose": self.pose.to_dict(), "distance_to_inspection_pose_m": pose_distance,
-                "reason": "no_valid_lidar_returns",
+                "reason": "no_valid_lidar_returns_in_passage_cone",
             }
         blocked = nearest_range <= self.blocked_distance_m
         return {
@@ -100,7 +109,7 @@ class ProximityObservationAdapter:
             "observed_status": "blocked" if blocked else "open", "source": "nearby_lidar",
             "confidence": 0.9 if blocked else 0.75, "robot_pose": self.pose.to_dict(),
             "distance_to_inspection_pose_m": pose_distance, "nearest_lidar_range_m": nearest_range,
-            "threshold_m": self.blocked_distance_m,
+            "threshold_m": self.blocked_distance_m, "passage_scan_half_angle_rad": self.passage_scan_half_angle_rad,
         }
 
     def inspect_location(self, room_id: str, entities: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:

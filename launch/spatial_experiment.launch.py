@@ -23,11 +23,15 @@ def generate_launch_description() -> LaunchDescription:
     gui = DeclareLaunchArgument("gui", default_value="true")
     scenario_path = DeclareLaunchArgument("scenario_path", default_value=scenario)
     map_yaml = DeclareLaunchArgument("map_yaml", description="Generated static map YAML")
+    rviz = DeclareLaunchArgument("rviz", default_value="true", description="Open the RViz sensor/map view")
+    map_to_odom_x = DeclareLaunchArgument("map_to_odom_x", default_value="-8.65")
+    map_to_odom_y = DeclareLaunchArgument("map_to_odom_y", default_value="-6.0")
     model = DeclareLaunchArgument("model", default_value="")
     results_dir = DeclareLaunchArgument("results_dir", default_value="")
     mock = DeclareLaunchArgument("mock", default_value="false")
     open_chat_terminal = DeclareLaunchArgument("open_chat_terminal", default_value="true")
     auto_close = DeclareLaunchArgument("auto_close", default_value="false")
+    run_trial = DeclareLaunchArgument("run_trial", default_value="true")
 
     gazebo_gui = ExecuteProcess(cmd=["gz", "sim", "-r", world], output="screen", condition=IfCondition(LaunchConfiguration("gui")))
     gazebo_headless = ExecuteProcess(cmd=["gz", "sim", "-r", "-s", world], output="screen", condition=UnlessCondition(LaunchConfiguration("gui")))
@@ -59,7 +63,10 @@ def generate_launch_description() -> LaunchDescription:
     # prevents a second static source from resetting the map origin to zero.
     odom_tf = Node(
         package="terralift", executable="spatial_odom_tf", name="spatial_odom_tf", output="screen",
-        parameters=[{"use_sim_time": True, "map_to_odom_x": -7.0, "map_to_odom_y": -5.0}],
+        parameters=[{
+            "use_sim_time": True, "map_to_odom_x": LaunchConfiguration("map_to_odom_x"),
+            "map_to_odom_y": LaunchConfiguration("map_to_odom_y"),
+        }],
     )
     # Gazebo reports the scan in its scoped sensor frame.  Gazebo's native TF
     # stream is intentionally not bridged; publish this fixed sensor mount so
@@ -99,8 +106,14 @@ def generate_launch_description() -> LaunchDescription:
             "node_names": ["controller_server", "planner_server", "behavior_server", "bt_navigator"],
         }],
     )
+    rviz_view = Node(
+        package="rviz2", executable="rviz2", name="spatial_experiment_rviz", output="screen",
+        arguments=["-d", os.path.join(share, "rviz", "spatial_experiment.rviz")],
+        parameters=[{"use_sim_time": True}], condition=IfCondition(LaunchConfiguration("rviz")),
+    )
     runner = Node(
         package="terralift", executable="spatial_trial_runner", name="spatial_trial_runner", output="screen",
+        condition=IfCondition(LaunchConfiguration("run_trial")),
         parameters=[{
             "use_sim_time": True, "scenario_path": LaunchConfiguration("scenario_path"),
             "results_dir": LaunchConfiguration("results_dir"), "model": LaunchConfiguration("model"),
@@ -119,6 +132,7 @@ def generate_launch_description() -> LaunchDescription:
         event_handler=OnProcessExit(target_action=runner, on_exit=[EmitEvent(event=Shutdown(reason="spatial trial completed"))]),
     )
     return LaunchDescription([
-        gui, scenario_path, map_yaml, model, results_dir, mock, open_chat_terminal, auto_close,
-        gazebo_gui, gazebo_headless, begin_ros, begin_trial, shutdown_after_runner,
+        gui, scenario_path, map_yaml, rviz, map_to_odom_x, map_to_odom_y, model, results_dir, mock,
+        open_chat_terminal, auto_close, run_trial, gazebo_gui, gazebo_headless, begin_ros, rviz_view,
+        begin_trial, shutdown_after_runner,
     ])

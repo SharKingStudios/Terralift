@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCENARIO="distance_ranking_flip"
 MODEL="${ANTHROPIC_MODEL:-claude-haiku-5-5}"
 GUI=true
+RVIZ=true
 MOCK=false
 AUTO_CLOSE=false
 RESULTS_DIR="${TERRALIFT_RESULTS_DIR:-}"
@@ -16,7 +17,8 @@ Usage: ./scripts/run_spatial_trial.sh [options]
   --scenario NAME       Scenario JSON stem (default: distance_ranking_flip)
   --model MODEL         Anthropic model (default: $ANTHROPIC_MODEL)
   --gui                 Start Gazebo GUI (default)
-  --headless            Run Gazebo server only
+  --headless            Run Gazebo server only (and disable RViz)
+  --no-rviz             Do not open RViz alongside the Gazebo GUI
   --mock                Use deterministic test fixture; never calls Anthropic
   --close               Close Gazebo automatically after the trial
   --results-dir PATH    Override TERRALIFT_RESULTS_DIR
@@ -27,8 +29,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --scenario) SCENARIO="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
-    --gui) GUI=true; shift ;;
-    --headless) GUI=false; shift ;;
+    --gui) GUI=true; RVIZ=true; shift ;;
+    --headless) GUI=false; RVIZ=false; shift ;;
+    --no-rviz) RVIZ=false; shift ;;
     --mock) MOCK=true; shift ;;
     --close) AUTO_CLOSE=true; shift ;;
     --results-dir) RESULTS_DIR="$2"; shift 2 ;;
@@ -95,5 +98,5 @@ else
   echo "Starting ${SCENARIO} (real Anthropic API)"
 fi
 ros2 launch terralift spatial_experiment.launch.py \
-  gui:="$GUI" scenario_path:="$SCENARIO_PATH" map_yaml:="$MAP_YAML" \
+  gui:="$GUI" rviz:="$RVIZ" scenario_path:="$SCENARIO_PATH" map_yaml:="$MAP_YAML" \
   model:="$MODEL" mock:="$MOCK" auto_close:="$AUTO_CLOSE"

@@ -20,6 +20,8 @@ cp .env.example .env
 ```
 
 That starts the visible Gazebo trial with `claude-haiku-5-5` by default.
+RViz also opens by default with the static map, live LiDAR, TF, and Nav2
+paths. Pass `--no-rviz` to keep Gazebo without the RViz window.
 
 ### Important: use WSL Bash, not PowerShell, for `.sh` files
 
@@ -128,6 +130,36 @@ ANTHROPIC_MODEL=claude-haiku-5-5
 
 The command builds the package, regenerates a map from permanent warehouse geometry, starts Gazebo Harmonic and ROS/Gazebo bridges, launches Nav2, waits for `/clock`, opens a second terminal that tails the live transcript, starts an MCAP rosbag, inserts the hidden physical A–E barrier, and starts the real Claude tool-use loop.
 
+## Visual robot-motion tour (no AI/API calls)
+
+The enclosed-room layout is a cycle of dedicated corridors:
+
+```text
+[B] -- [C] -- [D]
+ |                 |
+[A] ------------ [E]
+```
+
+Each corridor is physically walled from the others; another route becomes
+visible only after the robot enters its endpoint room. Forward motion is
+capped at 2.2 m/s (four times the former 0.55 m/s cap). Angular speed remains
+at 0.8 rad/s for stable turns in the 2.4 m corridors.
+
+To verify chassis translation, turns, Nav2 goal stops, and the room geometry
+before collecting data, run this from WSL Bash:
+
+```bash
+./scripts/run_spatial_room_tour.sh
+```
+
+It starts in A, visits B, C, D, E, and returns to A. The robot pauses briefly
+at every room and Gazebo remains open with the robot stopped in A when the
+tour is done. It does not call Claude or require an API key.
+
+Both Gazebo and RViz open for the tour. On some Jazzy/WSLg systems RViz writes
+one `indexed_8bit_image` GLSL warning as its first occupancy-grid message; it
+does not affect Gazebo, Nav2, LiDAR, TF, or the remaining RViz displays.
+
 Useful options:
 
 ```bash
@@ -136,6 +168,9 @@ Useful options:
 
 # No GUI for a real trial
 ./scripts/run_spatial_trial.sh --headless
+
+# Keep Gazebo but suppress the default RViz window
+./scripts/run_spatial_trial.sh --gui --no-rviz
 
 # Deterministic no-cost end-to-end controller fixture. This is never the default.
 ./scripts/run_spatial_trial.sh --mock --headless --close
@@ -156,9 +191,26 @@ The default GUI remains open after the trial so the robot, rooms, flags, and ora
 - `SpatialMemory.from_scenario()` creates the original agent-visible graph, entities, costs, and question.
 - `GazeboWorldManager` owns controller-only hidden changes and ground truth.
 
-The full changed graph is never in the Claude system prompt, user message, tool result, debug line, or visible memory. Passage inspection first navigates to a fixed inspection pose using `NavigateToPose`, then interprets the nearest valid actual bridged `/scan` range. The documented 1.6 m threshold covers Nav2's inspection-pose tolerance and the LiDAR mount offset; evidence remains tied to the inspected passage and never reads controller truth. The barrier is a spawned Gazebo collision model. Flag observations use a documented proximity-limited symbolic marker sensor based on robot pose and physically represented flag entities; they are ready for semantic flag-relocation scenarios through `move_entity`.
+The full changed graph is never in the Claude system prompt, user message, tool result, debug line, or visible memory. The controller owns the hidden physical barrier and semantic fixture state; observations are returned only through the constrained tools below.
 
 Claude has only these validated client-side tools:
+
+### Observation fidelity
+
+Passage inspection drives to the configured doorway pose and evaluates only a
+0.22-radian cone of the actual bridged LiDAR scan toward the fixed doorway.
+That avoids treating nearby corridor side walls as a blockage. The 2.0 m
+threshold is calibrated for the 0.55 m forward scanner mount, Nav2 goal
+tolerance, and the spawned 2.7 m cross-corridor collision barrier. The static
+map deliberately remains open at that doorway, so the barrier reaches Nav2
+only through live LiDAR.
+
+Flag observations are range-limited *symbolic simulated marker* observations:
+within 2.5 m of the robot, the controller returns the flag ID/type from the
+scenario state. Flags are visible Gazebo fixtures and can be physically moved,
+but this is not camera, AprilTag, or learned-vision detection. It is valid for
+the language agent's navigation, evidence use, belief update, and graph
+reasoning—not a benchmark of visual marker perception.
 
 - `navigate_to(location_id)`
 - `inspect_passage(passage_id)`
