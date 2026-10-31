@@ -37,7 +37,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -f "$ROOT/.env" ]] && { set -a; source "$ROOT/.env"; set +a; }
+# Editors on Windows commonly save `.env` with CRLF line endings. Source a
+# newline-normalized stream so the same untracked credential file works from
+# both Windows and WSL without rewriting or exposing its contents.
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  source <(sed 's/\r$//' "$ROOT/.env")
+  set +a
+fi
 if [[ "$MODEL" == "claude-haiku-5-5" && -n "${ANTHROPIC_MODEL:-}" ]]; then
   MODEL="$ANTHROPIC_MODEL"
 fi

@@ -96,6 +96,7 @@ Ubuntu 24.04 ROS 2 Jazzy, Gazebo Harmonic, Nav2, ROS/Gazebo bridge, MCAP, and
 build packages. The normal run script creates its own Python virtual
 environment and installs the pinned Anthropic SDK automatically. Keep the API
 key only in `.env`, never in an agent prompt, command history, commit, or log.
+The launcher accepts both Windows (CRLF) and Linux (LF) `.env` line endings.
 
 For the visible GUI on Windows, use WSL 2 with current WSLg and a current GPU
 driver. If a machine has no usable graphical acceleration, the same experiment
