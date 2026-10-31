@@ -21,6 +21,30 @@ cp .env.example .env
 
 That starts the visible Gazebo trial with `claude-haiku-5-5` by default.
 
+### Important: use WSL Bash, not PowerShell, for `.sh` files
+
+`./scripts/run_spatial_trial.sh` is a Bash program. It will not launch the
+ROS/Gazebo environment when run directly in a Windows PowerShell terminal.
+Choose either entry point:
+
+```powershell
+# Windows PowerShell, from the repository root. This wrapper enters WSL for you.
+.\scripts\run_spatial_trial.ps1
+```
+
+```bash
+# Ubuntu/WSL Bash terminal.
+cd /mnt/c/Users/Logan/Documents/GitHub/Terralift
+./scripts/run_spatial_trial.sh
+```
+
+If the PowerShell wrapper reports a missing distribution, use the exact name
+shown by `wsl --list --verbose`, for example:
+
+```powershell
+.\scripts\run_spatial_trial.ps1 -Distro Ubuntu-24.04
+```
+
 ## Install on another Ubuntu 24.04 machine
 
 Use a desktop session with a working OpenGL driver. Gazebo Harmonic is the supported Gazebo release for ROS 2 Jazzy.
@@ -38,6 +62,44 @@ cd /path/to/Terralift
 On its first launch, the script creates `.venv-spatial-experiment` and installs the pinned official `anthropic` Python SDK, NetworkX, and `python-dotenv` automatically. No OpenAI API or SDK is used.
 
 For WSL2, use current WSLg with GPU/OpenGL support, or use `--headless` and run the GUI from a native Ubuntu desktop. On a remote non-graphical Linux machine, use `--headless`; the live transcript remains on stdout and disk but no second graphical terminal can open.
+
+## Fresh-machine / agent bootstrap
+
+An agent can provision another Windows PC from a clean GitHub clone without
+guessing ROS versions. Use **WSL 2 + Ubuntu 24.04** (not Ubuntu 22.04, WSL 1,
+or a Windows Python environment). In an elevated Windows PowerShell:
+
+```powershell
+wsl --install -d Ubuntu-24.04
+wsl --update
+wsl --shutdown
+```
+
+After restarting/opening Ubuntu and creating its Linux username, install Git
+once and clone the repository into the Linux filesystem for the best
+Gazebo/colcon performance (for example `~/src/Terralift`, rather than
+`/mnt/c/...`). Then run:
+
+```bash
+sudo apt update && sudo apt install -y git
+git clone <your-GitHub-repository-URL> ~/src/Terralift
+cd ~/src/Terralift
+./scripts/setup_spatial_wsl.sh
+cp .env.example .env
+# Add ANTHROPIC_API_KEY to .env.
+./scripts/run_spatial_trial.sh --mock --close  # visible no-cost validation
+./scripts/run_spatial_trial.sh                 # real Claude data collection
+```
+
+The bootstrap needs internet access and `sudo`; it installs the pinned
+Ubuntu 24.04 ROS 2 Jazzy, Gazebo Harmonic, Nav2, ROS/Gazebo bridge, MCAP, and
+build packages. The normal run script creates its own Python virtual
+environment and installs the pinned Anthropic SDK automatically. Keep the API
+key only in `.env`, never in an agent prompt, command history, commit, or log.
+
+For the visible GUI on Windows, use WSL 2 with current WSLg and a current GPU
+driver. If a machine has no usable graphical acceleration, the same experiment
+can still be collected with `--headless`, but GUI inspection is unavailable.
 
 ## Configure Claude
 
