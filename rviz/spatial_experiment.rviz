@@ -132,7 +132,7 @@ Visualization Manager:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
       Name: Current View
-      Scale: 24
+      Scale: 12
       Target Frame: map
 Window Geometry:
   Height: 900

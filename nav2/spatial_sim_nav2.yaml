@@ -1,4 +1,4 @@
-# A fast-but-bounded Nav2 profile for the 24 x 20 m Gazebo warehouse.
+# A bounded Nav2 profile for the 48 x 40 m Gazebo warehouse.
 # The static map contains permanent walls only; live /scan feeds obstacle layers.
 bt_navigator:
   ros__parameters:
@@ -13,7 +13,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: true
-    controller_frequency: 15.0
+    controller_frequency: 30.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
@@ -32,23 +32,26 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: false
-      min_vel_x: -1.0
-      max_vel_x: 2.2
-      max_vel_theta: 0.8
+      min_vel_x: -0.4
+      max_vel_x: 1.2
+      max_vel_theta: 1.4
       min_speed_xy: 0.0
-      max_speed_xy: 2.2
-      acc_lim_x: 2.4
+      max_speed_xy: 1.2
+      acc_lim_x: 1.2
       decel_lim_x: -2.4
-      acc_lim_theta: 1.0
-      decel_lim_theta: -1.0
+      acc_lim_theta: 2.5
+      decel_lim_theta: -2.5
       vx_samples: 25
       vtheta_samples: 15
-      sim_time: 1.2
+      sim_time: 1.5
       linear_granularity: 0.08
       angular_granularity: 0.025
       transform_tolerance: 0.5
-      critics: [RotateToGoal, Oscillation, BaseObstacle, GoalAlign, PathAlign, PathDist, GoalDist]
-      BaseObstacle.scale: 0.04
+      # Check the whole padded chassis/wheel envelope at each sampled pose.
+      # BaseObstacle additionally prefers the low-cost corridor centre.
+      critics: [RotateToGoal, Oscillation, ObstacleFootprint, BaseObstacle, GoalAlign, PathAlign, PathDist, GoalDist]
+      ObstacleFootprint.scale: 0.05
+      BaseObstacle.scale: 0.08
       PathAlign.scale: 20.0
       PathDist.scale: 32.0
       GoalAlign.scale: 12.0
@@ -89,12 +92,12 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: true
-    smoothing_frequency: 15.0
+    smoothing_frequency: 30.0
     feedback: OPEN_LOOP
-    max_velocity: [2.2, 0.0, 0.8]
-    min_velocity: [-1.0, 0.0, -0.8]
-    max_accel: [2.4, 0.0, 1.0]
-    max_decel: [-2.4, 0.0, -1.0]
+    max_velocity: [1.2, 0.0, 1.4]
+    min_velocity: [-0.4, 0.0, -1.4]
+    max_accel: [1.2, 0.0, 2.5]
+    max_decel: [-2.4, 0.0, -2.5]
     odom_topic: /odom
 
 local_costmap:
@@ -107,10 +110,12 @@ local_costmap:
       width: 7
       height: 7
       resolution: 0.05
-      update_frequency: 8.0
+      update_frequency: 15.0
       publish_frequency: 2.0
       transform_tolerance: 0.5
-      robot_radius: 0.38
+      # Chassis: 0.90 x 0.62 m; wheel collision outer edges: y = +/-0.41 m.
+      footprint: "[[0.45, 0.41], [0.45, -0.41], [-0.45, -0.41], [-0.45, 0.41]]"
+      footprint_padding: 0.10
       plugins: [obstacle_layer, inflation_layer]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -124,7 +129,7 @@ local_costmap:
           raytrace_max_range: 10.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.70
+        inflation_radius: 0.90
         cost_scaling_factor: 3.0
 
 global_costmap:
@@ -136,7 +141,8 @@ global_costmap:
       update_frequency: 2.0
       publish_frequency: 1.0
       transform_tolerance: 0.5
-      robot_radius: 0.38
+      footprint: "[[0.45, 0.41], [0.45, -0.41], [-0.45, -0.41], [-0.45, 0.41]]"
+      footprint_padding: 0.10
       resolution: 0.05
       track_unknown_space: false
       plugins: [static_layer, obstacle_layer, inflation_layer]
@@ -155,7 +161,7 @@ global_costmap:
           raytrace_max_range: 12.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.75
+        inflation_radius: 0.90
         cost_scaling_factor: 3.0
 
 lifecycle_manager_navigation:

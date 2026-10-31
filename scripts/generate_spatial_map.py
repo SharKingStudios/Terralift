@@ -15,8 +15,8 @@ from pathlib import Path
 
 
 RESOLUTION = 0.05
-ORIGIN_X, ORIGIN_Y = -12.0, -10.0
-WIDTH, HEIGHT = 480, 400
+ORIGIN_X, ORIGIN_Y = -24.0, -20.0
+WIDTH, HEIGHT = 960, 800
 
 
 def world_to_pixel(x: float, y: float) -> tuple[int, int]:
@@ -35,16 +35,16 @@ def fill_rect(grid: list[list[int]], minimum_x: float, maximum_x: float, minimum
 # exactly two room endpoints; choosing another route requires entering a room
 # first, so the topology remains spatially meaningful to a navigating agent.
 FREE_REGIONS = (
-    (-10.5, -6.8, -8.0, -4.0),  # A
-    (-10.5, -6.8, 4.0, 8.0),    # B
-    (-2.4, 2.4, 4.4, 7.6),      # C
-    (6.8, 10.5, 4.0, 8.0),      # D
-    (6.8, 10.5, -8.0, -4.0),    # E
-    (-9.2, -6.8, -4.0, 4.0),    # A <-> B
-    (-6.8, -2.4, 4.8, 7.2),     # B <-> C
-    (2.4, 6.8, 4.8, 7.2),       # C <-> D
-    (6.8, 9.2, -4.0, 4.0),      # D <-> E
-    (-6.8, 6.8, -7.2, -4.8),    # A <-> E
+    (-21.0, -13.6, -16.0, -8.0),  # A: 7.4 x 8.0 m
+    (-21.0, -13.6, 8.0, 16.0),    # B
+    (-4.8, 4.8, 8.8, 15.2),      # C: 9.6 x 6.4 m
+    (13.6, 21.0, 8.0, 16.0),     # D
+    (13.6, 21.0, -16.0, -8.0),   # E
+    (-18.4, -13.6, -8.0, 8.0),   # A <-> B: 4.8 m wide
+    (-13.6, -4.8, 9.6, 14.4),    # B <-> C
+    (4.8, 13.6, 9.6, 14.4),      # C <-> D
+    (13.6, 18.4, -8.0, 8.0),     # D <-> E
+    (-13.6, 13.6, -14.4, -9.6),  # A <-> E
 )
 
 

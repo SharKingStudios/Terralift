@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -120,3 +121,43 @@ def test_robot_wheel_axes_match_the_rolled_wheel_link_frame():
     axes = [joint.find("axis/xyz") for joint in root.findall(".//joint") if joint.attrib["name"].endswith("_joint")]
     assert len(axes) == 4
     assert all(axis is not None and axis.text.strip() == "0 0 -1" for axis in axes)
+
+
+def test_static_map_matches_resized_physical_walls_and_scenario():
+    """Catch a resized map/scenario drifting out of sync with Gazebo geometry."""
+    root = Path(__file__).parents[1]
+    generator = runpy.run_path(str(root / "scripts" / "generate_spatial_map.py"))
+    regions = generator["FREE_REGIONS"]
+    world = ET.parse(root / "worlds" / "spatial_warehouse.sdf").getroot()
+    walls = []
+    for model in world.findall("./world/model"):
+        if model.attrib["name"] == "ground":
+            continue
+        for collision in model.findall("./link/collision"):
+            sx, sy, _ = map(float, collision.findtext("geometry/box/size").split())
+            x, y, *_ = map(float, collision.findtext("pose").split())
+            walls.append((x - sx / 2, x + sx / 2, y - sy / 2, y + sy / 2))
+
+    def inside(x, y, rectangle):
+        left, right, bottom, top = rectangle
+        return left < x < right and bottom < y < top
+
+    # Sample cell interiors across the building, avoiding exact wall boundaries.
+    for ix in range(168):
+        for iy in range(128):
+            x, y = -21 + (ix + 0.5) * 0.25, -16 + (iy + 0.5) * 0.25
+            mapped_free = any(inside(x, y, region) for region in regions)
+            physical_wall = any(inside(x, y, wall) for wall in walls)
+            assert mapped_free != physical_wall, (x, y)
+
+    subject = scenario()
+    spawn = list(map(float, world.findtext("./world/include/pose").split()))
+    assert spawn[:2] == [subject.robot_start.x, subject.robot_start.y]
+    for passage in subject.passages.values():
+        pose, barrier = passage.inspection_pose, passage.blocker_pose
+        assert any(inside(pose.x, pose.y, region) for region in regions)
+        assert abs((pose.x - barrier.x) ** 2 + (pose.y - barrier.y) ** 2 - 4.0) < 1e-6
+    blocker = ET.parse(root / "models" / "passage_blocker" / "model.sdf")
+    barrier_width = float(blocker.findtext(".//collision/geometry/box/size").split()[1])
+    for left, right, bottom, top in regions[5:]:
+        assert barrier_width > min(right - left, top - bottom)

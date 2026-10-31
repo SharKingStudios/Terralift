@@ -141,9 +141,24 @@ The enclosed-room layout is a cycle of dedicated corridors:
 ```
 
 Each corridor is physically walled from the others; another route becomes
-visible only after the robot enters its endpoint room. Forward motion is
-capped at 2.2 m/s (four times the former 0.55 m/s cap). Angular speed remains
-at 0.8 rad/s for stable turns in the 2.4 m corridors.
+visible only after the robot enters its endpoint room. The layout is twice
+its original horizontal size: corridors are 4.8 m wide, rooms A/B/D/E are
+7.4 x 8.0 m, and room C is 9.6 x 6.4 m. The static map covers 48 x 40 m
+at the original 0.05 m resolution. Robot dimensions are unchanged.
+
+Nav2 uses the full 0.90 x 0.82 m chassis-and-wheel envelope with 0.10 m
+padding in both costmaps. DWB checks the oriented footprint for collisions;
+a moderate 0.90 m inflation field discourages wall hugging without the
+overly strong avoidance costs used during tuning. Forward motion is capped
+at 1.2 m/s, angular speed at 1.4 rad/s, and angular acceleration at 2.5 rad/s²
+for tighter, quicker turns. The controller runs at 30 Hz.
+
+Gazebo targets 2.0 times real time (200%) while retaining the 0.001 s physics
+step. Actual speed depends on the host and is visible in Gazebo; change
+`real_time_factor` in `worlds/spatial_warehouse.sdf` to `1.0` for a real-time
+comparison. Faster simulation does not increase the robot's simulated speed.
+Wheel odometry can still drift: a successful Nav2 tour alone does not prove
+that the physical robot followed the entire route without contact.
 
 To verify chassis translation, turns, Nav2 goal stops, and the room geometry
 before collecting data, run this from WSL Bash:
@@ -201,7 +216,7 @@ Passage inspection drives to the configured doorway pose and evaluates only a
 0.22-radian cone of the actual bridged LiDAR scan toward the fixed doorway.
 That avoids treating nearby corridor side walls as a blockage. The 2.0 m
 threshold is calibrated for the 0.55 m forward scanner mount, Nav2 goal
-tolerance, and the spawned 2.7 m cross-corridor collision barrier. The static
+tolerance, and the spawned 5.4 m cross-corridor collision barrier. The static
 map deliberately remains open at that doorway, so the barrier reaches Nav2
 only through live LiDAR.
 
