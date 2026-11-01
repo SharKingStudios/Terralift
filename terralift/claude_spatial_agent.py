@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import time
@@ -14,6 +15,13 @@ class ClaudeProtocolError(RuntimeError):
     pass
 
 
+PROMPT_SCHEMA_VERSION = "1.0.0"
+
+
+# Tool schemas are deliberately condition-invariant.  In particular, the
+# answer tool remains available at the first turn: an unsupported premature
+# answer would erase the very behaviour this experiment is intended to
+# measure.
 TOOLS: List[Dict[str, Any]] = [
     {
         "name": "navigate_to",
@@ -22,17 +30,17 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "inspect_passage",
-        "description": "Navigate to a passage's inspection pose and return a proximity-limited LiDAR observation.",
+        "description": "Navigate to a passage inspection pose and return a local, proximity-limited LiDAR observation.",
         "input_schema": {"type": "object", "properties": {"passage_id": {"type": "string"}}, "required": ["passage_id"], "additionalProperties": False},
     },
     {
         "name": "inspect_location",
-        "description": "Navigate to a room and report proximity-limited semantic marker observations.",
+        "description": "Navigate to a room and report local, proximity-limited simulated semantic-marker observations.",
         "input_schema": {"type": "object", "properties": {"location_id": {"type": "string"}}, "required": ["location_id"], "additionalProperties": False},
     },
     {
         "name": "update_memory",
-        "description": "Explicitly revise one believed passage or semantic entity using previously returned evidence IDs.",
+        "description": "Modify recorded spatial memory using previously returned evidence IDs.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -49,7 +57,7 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "answer_question",
-        "description": "Give the final concise answer only after sufficient evidence and explicit memory revision.",
+        "description": "Submit the final concise answer to the spatial question. This tool is available at any time.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -63,10 +71,48 @@ TOOLS: List[Dict[str, Any]] = [
 ]
 
 
-SYSTEM_PROMPT = """You are the high-level spatial-belief agent in a mobile-robot experiment.
-You receive only an old, structured map and physical observations returned by tools. Treat the map as a belief, not truth. Do not infer or claim hidden changes that were not observed. Choose targeted verification actions relevant to the question; Nav2, not you, controls motion.
+PROMPT_CONDITIONS: Dict[str, Dict[str, str]] = {
+    "neutral": {
+        "version": "1.0.0",
+        "system": """You are a spatial question-answering robot in a mobile-robot experiment.
+You have a previously recorded structured map and the available navigation, observation, memory-editing, and answer tools. Use the information and tools available to you to answer the question about the current environment. Nav2, not you, controls motion when a navigation or inspection tool is called.
 
-When evidence contradicts a belief, call update_memory with the exact evidence IDs before answering. Then use your revised graph and semantic state to reason about the question. The question family semantic_distance_ranking means greatest shortest traversable-path cost from the A-flag room to a room containing a B flag; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation and evidence IDs. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces."""
+The question family semantic_distance_ranking asks for the room containing a B flag with the greatest shortest traversable-path cost from the A-flag room; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation and any evidence IDs you choose to cite. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces.""",
+    },
+    "verification_guided": {
+        "version": "1.0.0",
+        "system": """You are a spatial question-answering robot in a mobile-robot experiment.
+You have a previously recorded structured map and the available navigation, observation, memory-editing, and answer tools. Use the information and tools available to you to answer the question about the current environment. Nav2, not you, controls motion when a navigation or inspection tool is called.
+
+Previously recorded beliefs may not match the current environment. Consider whether verification relevant to the question is useful. If an observation contradicts recorded spatial information, use evidence-backed memory edits before relying on that revised information.
+
+The question family semantic_distance_ranking asks for the room containing a B flag with the greatest shortest traversable-path cost from the A-flag room; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation and any evidence IDs you choose to cite. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces.""",
+    },
+}
+
+
+def prompt_condition(name: str) -> Dict[str, str]:
+    """Return a versioned, auditable experimental prompt condition."""
+    try:
+        condition = PROMPT_CONDITIONS[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unknown prompt condition {name!r}; choose one of {sorted(PROMPT_CONDITIONS)}"
+        ) from exc
+    return {"id": name, "version": condition["version"], "system": condition["system"]}
+
+
+def prompt_hash(system_prompt: str, rendered_user_prompt: str, tools: List[Dict[str, Any]], model_settings: Mapping[str, Any]) -> str:
+    """Hash exactly the prompt components retained with a trial."""
+    rendered = {
+        "prompt_schema_version": PROMPT_SCHEMA_VERSION,
+        "system_prompt": system_prompt,
+        "initial_user_prompt": rendered_user_prompt,
+        "tool_schemas": tools,
+        "model_settings": dict(model_settings),
+    }
+    encoded = json.dumps(rendered, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _serialise(value: Any) -> Any:
@@ -99,7 +145,9 @@ def parse_tool_blocks(content: Iterable[Any]) -> List[Dict[str, Any]]:
 class ClaudeAgent:
     """Official Anthropic SDK client with durable request/response records."""
 
-    def __init__(self, model: Optional[str], api_key: Optional[str], data: Any, transcript: Any, max_tokens: int = 1200, max_retries: int = 2) -> None:
+    def __init__(self, model: Optional[str], api_key: Optional[str], data: Any, transcript: Any,
+                 system_prompt: str, tools: List[Dict[str, Any]] = TOOLS,
+                 max_tokens: int = 1200, max_retries: int = 2) -> None:
         self.model = model or os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not self.api_key:
@@ -110,17 +158,23 @@ class ClaudeAgent:
             raise RuntimeError("Install requirements-spatial-experiment.txt to use Claude") from exc
         self.client = Anthropic(api_key=self.api_key)
         self.data, self.transcript, self.max_tokens, self.max_retries = data, transcript, max_tokens, max_retries
-        self.usage = {"api_calls": 0, "input_tokens": 0, "output_tokens": 0, "api_latency_sec": 0.0}
+        self.system_prompt = system_prompt
+        self.tools = _serialise(tools)
+        self.usage = {
+            "api_calls": 0, "input_tokens": 0, "output_tokens": 0,
+            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+            "api_latency_sec": 0.0,
+        }
 
     def next(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         request_number = self.usage["api_calls"] + 1
-        request = {"request_number": request_number, "model": self.model, "max_tokens": self.max_tokens, "system": SYSTEM_PROMPT, "tools": TOOLS, "messages": messages}
+        request = {"request_number": request_number, "model": self.model, "max_tokens": self.max_tokens, "system": self.system_prompt, "tools": self.tools, "messages": messages}
         start = time.monotonic()
         started_at = datetime.now(timezone.utc).isoformat()
         response = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = self.client.messages.create(model=self.model, max_tokens=self.max_tokens, system=SYSTEM_PROMPT, tools=TOOLS, messages=messages)
+                response = self.client.messages.create(model=self.model, max_tokens=self.max_tokens, system=self.system_prompt, tools=self.tools, messages=messages)
                 break
             except Exception as exc:
                 self.data.append("ai/requests_responses.jsonl", {
@@ -138,6 +192,8 @@ class ClaudeAgent:
         self.usage["api_calls"] += 1
         self.usage["input_tokens"] += int(usage.get("input_tokens", 0))
         self.usage["output_tokens"] += int(usage.get("output_tokens", 0))
+        self.usage["cache_creation_input_tokens"] += int(usage.get("cache_creation_input_tokens", 0))
+        self.usage["cache_read_input_tokens"] += int(usage.get("cache_read_input_tokens", 0))
         self.usage["api_latency_sec"] += latency
         self.data.append("ai/requests_responses.jsonl", {"request": request, "response": raw_response, "started_at": started_at, "latency_sec": latency})
         for block in raw_response.get("content", []):
@@ -149,14 +205,28 @@ class ClaudeAgent:
 
 
 class MockClaudeAgent:
-    """Deterministic fixture for integration tests; never selected by default."""
+    """Deterministic fixture for integration tests; never selected by default.
 
-    def __init__(self, data: Any, transcript: Any) -> None:
+    ``survey_passages`` is an explicit no-cost sensor-calibration fixture. It
+    is not an experimental model condition and must never be mixed into a
+    Claude result set.
+    """
+
+    def __init__(self, data: Any, transcript: Any, strategy: str = "answer_flip") -> None:
+        if strategy not in {"answer_flip", "survey_passages"}:
+            raise ValueError(f"Unknown mock strategy: {strategy}")
         self.data, self.transcript = data, transcript
+        self.strategy = strategy
         self.step = 0
         self.memory: Optional[Dict[str, Any]] = None
         self._observed_traversable: Optional[bool] = None
-        self.usage = {"api_calls": 0, "input_tokens": 0, "output_tokens": 0, "api_latency_sec": 0.0}
+        self._survey_ids: List[str] = []
+        self._survey_index = 0
+        self.usage = {
+            "api_calls": 0, "input_tokens": 0, "output_tokens": 0,
+            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+            "api_latency_sec": 0.0,
+        }
 
     def next(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         self.step += 1
@@ -164,7 +234,24 @@ class MockClaudeAgent:
         if self.step == 1:
             initial = json.loads(str(messages[0]["content"]))
             self.memory = initial["spatial_memory"]
+            if self.strategy == "survey_passages":
+                self._survey_ids = sorted(self.memory["passages"])
+                content = [{"type": "tool_use", "id": "mock-survey-0", "name": "inspect_passage", "input": {"passage_id": self._survey_ids[0]}}]
+                response = {"id": f"mock-{self.step}", "model": "mock", "content": content, "usage": {"input_tokens": 0, "output_tokens": 0}}
+                self.data.append("ai/requests_responses.jsonl", {"request_number": self.step, "fixture": True, "messages": messages, "response": response})
+                self.transcript.line("MOCK CLAUDE", json.dumps(content), request_number=self.step)
+                return response
             content = [{"type": "tool_use", "id": "mock-inspect", "name": "inspect_passage", "input": {"passage_id": "A_E"}}]
+        elif self.strategy == "survey_passages":
+            self._survey_index += 1
+            if self._survey_index < len(self._survey_ids):
+                passage_id = self._survey_ids[self._survey_index]
+                content = [{"type": "tool_use", "id": f"mock-survey-{self._survey_index}", "name": "inspect_passage", "input": {"passage_id": passage_id}}]
+            else:
+                if self.memory is None:  # pragma: no cover - defensive
+                    raise ClaudeProtocolError("Survey fixture was not initialized")
+                answer = self._answer_from_memory()
+                content = [{"type": "tool_use", "id": "mock-survey-answer", "name": "answer_question", "input": {"answer": answer, "reason": "Calibration survey completed.", "confidence": 1.0, "evidence_ids": []}}]
         elif self.step == 2:
             tool_result = messages[-1].get("content", [])
             if not tool_result:

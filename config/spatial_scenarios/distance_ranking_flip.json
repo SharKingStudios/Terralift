@@ -1,26 +1,27 @@
 {
   "scenario_id": "distance_ranking_flip",
   "title": "A closed A-E passage changes the farthest B-flag room",
+  "study_control": {"change_kind": "topological", "answer_effect": "flip"},
   "world_name": "spatial_warehouse",
-  "robot_start": {"x": -17.30, "y": -12.00, "yaw": 0.0},
+  "robot_start": {"x": -15.00, "y": -10.00, "yaw": 0.0},
   "rooms": [
-    {"id": "A", "pose": {"x": -17.30, "y": -12.00, "yaw": 0.0}, "geometry": {"width": 7.40, "depth": 8.00}},
-    {"id": "B", "pose": {"x": -17.30, "y": 12.00, "yaw": 1.57}, "geometry": {"width": 7.40, "depth": 8.00}},
-    {"id": "C", "pose": {"x": 0.00, "y": 12.00, "yaw": 0.0}, "geometry": {"width": 9.60, "depth": 6.40}},
-    {"id": "D", "pose": {"x": 17.30, "y": 12.00, "yaw": -1.57}, "geometry": {"width": 7.40, "depth": 8.00}},
-    {"id": "E", "pose": {"x": 17.30, "y": -12.00, "yaw": 3.14}, "geometry": {"width": 7.40, "depth": 8.00}}
+    {"id": "A", "pose": {"x": -15.00, "y": -10.00, "yaw": 0.0}, "geometry": {"width": 7.40, "depth": 7.20}},
+    {"id": "B", "pose": {"x": -15.00, "y": 4.00, "yaw": 1.57}, "geometry": {"width": 7.40, "depth": 7.20}},
+    {"id": "C", "pose": {"x": -2.00, "y": 7.00, "yaw": 0.0}, "geometry": {"width": 8.60, "depth": 14.00}},
+    {"id": "D", "pose": {"x": 15.00, "y": 4.00, "yaw": -1.57}, "geometry": {"width": 7.40, "depth": 7.20}},
+    {"id": "E", "pose": {"x": -2.00, "y": -10.00, "yaw": 3.14}, "geometry": {"width": 8.60, "depth": 7.20}}
   ],
   "passages": [
-    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -16.0, "y": -2.0, "yaw": 1.57}, "blocker_pose": {"x": -16.00, "y": 0.00, "yaw": 1.57}},
-    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -10.4, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": -8.40, "y": 12.00, "yaw": 0.0}},
-    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 7.6, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": 9.60, "y": 12.00, "yaw": 0.0}},
-    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 16.0, "y": 2.0, "yaw": -1.57}, "blocker_pose": {"x": 16.00, "y": 0.00, "yaw": 1.57}},
-    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -2.0, "y": -12.0, "yaw": 0.0}, "blocker_pose": {"x": 0.00, "y": -12.00, "yaw": 0.0}}
+    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -15.0, "y": -5.0, "yaw": 1.57}, "blocker_pose": {"x": -15.00, "y": -3.00, "yaw": 1.57}},
+    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -10.8, "y": 4.0, "yaw": 0.0}, "blocker_pose": {"x": -8.80, "y": 4.00, "yaw": 0.0}},
+    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 5.0, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": 7.00, "y": 12.00, "yaw": 0.0}},
+    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 15.0, "y": -1.0, "yaw": -1.57}, "blocker_pose": {"x": 15.00, "y": -3.00, "yaw": -1.57}},
+    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -10.8, "y": -10.0, "yaw": 0.0}, "blocker_pose": {"x": -8.80, "y": -10.00, "yaw": 0.0}}
   ],
   "entities": [
-    {"id": "flag_A_1", "type": "A", "room_id": "A", "pose": {"x": -18.60, "y": -13.60, "yaw": 0.0}},
-    {"id": "flag_B_D_1", "type": "B", "room_id": "D", "pose": {"x": 17.00, "y": 10.20, "yaw": 0.0}},
-    {"id": "flag_B_E_1", "type": "B", "room_id": "E", "pose": {"x": 17.00, "y": -13.60, "yaw": 0.0}}
+    {"id": "flag_A_1", "type": "A", "room_id": "A", "pose": {"x": -16.50, "y": -11.50, "yaw": 0.0}},
+    {"id": "flag_B_D_1", "type": "B", "room_id": "D", "pose": {"x": 14.00, "y": 5.50, "yaw": 0.0}},
+    {"id": "flag_B_E_1", "type": "B", "room_id": "E", "pose": {"x": -0.50, "y": -11.50, "yaw": 0.0}}
   ],
   "question": {
     "id": "farthest_b_from_a",

@@ -6,9 +6,28 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f /opt/ros/jazzy/setup.bash ]] || { echo "ROS 2 Jazzy was not found at /opt/ros/jazzy." >&2; exit 1; }
 
+# Read the optional experiment-isolation setting without modifying the
+# user's credential file. CRLF-safe loading matches the primary launcher.
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  source <(sed 's/\r$//' "$ROOT/.env")
+  set +a
+fi
+
 set +u
 source /opt/ros/jazzy/setup.bash
 set -u
+SPATIAL_ROS_DOMAIN_ID="${SPATIAL_ROS_DOMAIN_ID:-42}"
+[[ "$SPATIAL_ROS_DOMAIN_ID" =~ ^[0-9]+$ ]] && (( SPATIAL_ROS_DOMAIN_ID <= 232 )) || {
+  echo "SPATIAL_ROS_DOMAIN_ID must be an integer from 0 to 232." >&2; exit 2;
+}
+export ROS_DOMAIN_ID="$SPATIAL_ROS_DOMAIN_ID"
+if [[ -n "${SPATIAL_GZ_PARTITION:-}" ]]; then
+  export GZ_PARTITION="$SPATIAL_GZ_PARTITION"
+else
+  unset GZ_PARTITION
+fi
+echo "Spatial experiment isolation: ROS_DOMAIN_ID=$ROS_DOMAIN_ID, GZ_PARTITION=${GZ_PARTITION:-default}"
 cd "$ROOT"
 colcon build --symlink-install --packages-select terralift
 set +u

@@ -37,7 +37,10 @@ class SpatialMemory:
     def from_scenario(cls, scenario: Scenario) -> "SpatialMemory":
         seed = scenario.to_agent_seed()
         return cls(
-            scenario_id=seed["scenario_id"],
+            # The internal scenario identifier is useful in on-disk memory
+            # history, but must never appear in the agent-visible map: a
+            # descriptive scenario filename can itself leak the manipulation.
+            scenario_id=scenario.scenario_id,
             rooms=copy.deepcopy(seed["rooms"]),
             passages=copy.deepcopy(seed["passages"]),
             entities=copy.deepcopy(seed["entities"]),
@@ -57,7 +60,9 @@ class SpatialMemory:
 
     def visible_context(self) -> Dict[str, Any]:
         """Explicit prompt allow-list; it protects against truth leakage."""
-        return self.to_dict()
+        context = self.to_dict()
+        context.pop("scenario_id", None)
+        return context
 
     def add_evidence(self, evidence: Mapping[str, Any]) -> str:
         evidence_id = str(evidence["evidence_id"])

@@ -91,6 +91,7 @@ class Scenario:
     hidden_changes: List[Dict[str, Any]]
     robot_start: Pose2D
     world_name: str = "spatial_warehouse"
+    study_control: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Scenario":
@@ -156,6 +157,7 @@ class Scenario:
             [dict(change) for change in data["hidden_changes"]],
             Pose2D.from_value(data["robot_start"]),
             str(data.get("world_name", "spatial_warehouse")),
+            dict(data.get("study_control", {})),
         )
         scenario.validate()
         return scenario
@@ -176,6 +178,23 @@ class Scenario:
                     raise ScenarioError("Hidden entity move references an unknown entity or room")
             if change_type not in {"block_passage", "open_passage", "move_entity"}:
                 raise ScenarioError(f"Unsupported hidden change: {change_type}")
+        declared_kind = self.study_control.get("change_kind")
+        actual_kinds = {
+            "topological" if change["type"] in {"block_passage", "open_passage"} else "semantic"
+            for change in self.hidden_changes
+        }
+        actual_kind = "none" if not actual_kinds else next(iter(actual_kinds)) if len(actual_kinds) == 1 else "mixed"
+        if declared_kind is not None and declared_kind != actual_kind:
+            raise ScenarioError(
+                f"study_control.change_kind={declared_kind!r} disagrees with changes ({actual_kind!r})"
+            )
+        declared_effect = self.study_control.get("answer_effect")
+        answer_changed = self.answer_for_state(self.initial_state())["answer"] != self.answer_for_state(self.modified_state())["answer"]
+        actual_effect = "flip" if answer_changed else "invariant"
+        if declared_effect is not None and declared_effect != actual_effect:
+            raise ScenarioError(
+                f"study_control.answer_effect={declared_effect!r} disagrees with deterministic answer ({actual_effect!r})"
+            )
 
     def initial_state(self) -> Dict[str, Any]:
         return {
@@ -242,19 +261,18 @@ class Scenario:
         modified answer. Keep this contract small and testable.
         """
         return {
-            "scenario_id": self.scenario_id,
             "rooms": {room_id: {"pose": room.pose.to_dict()} for room_id, room in self.rooms.items()},
             "passages": {
                 p.passage_id: {
                     "rooms": list(p.rooms),
                     "cost": p.cost,
                     "traversable": p.initial_traversable,
-                    "verification": "historical",
+                    "provenance": "previously_recorded",
                 }
                 for p in self.passages.values()
             },
             "entities": {
-                e.entity_id: {"type": e.entity_type, "room_id": e.room_id, "verification": "historical"}
+                e.entity_id: {"type": e.entity_type, "room_id": e.room_id, "provenance": "previously_recorded"}
                 for e in self.entities.values()
             },
             "question": {
@@ -272,7 +290,18 @@ class Scenario:
             "modified_state": self.modified_state(),
             "original_answer": self.answer_for_state(self.initial_state()),
             "modified_answer": self.answer_for_state(self.modified_state()),
+            "study_control": copy.deepcopy(self.study_control),
         }
+
+    def changed_components(self) -> List[Dict[str, str]]:
+        """Controller/evaluator-only identifiers for changed world facts."""
+        components: List[Dict[str, str]] = []
+        for change in self.hidden_changes:
+            if change["type"] in {"block_passage", "open_passage"}:
+                components.append({"kind": "passage", "id": str(change["passage_id"])})
+            elif change["type"] == "move_entity":
+                components.append({"kind": "entity", "id": str(change["entity_id"])})
+        return components
 
 
 def load_scenario(path: str | Path) -> Scenario:

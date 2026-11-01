@@ -1,0 +1,18 @@
+{
+  "scenario_id": "no_change_control",
+  "title": "No-change historical-memory control",
+  "study_control": {"change_kind": "none", "answer_effect": "invariant"},
+  "world_name": "spatial_warehouse",
+  "robot_start": {"x": -15.0, "y": -10.0, "yaw": 0.0},
+  "rooms": [{"id": "A", "pose": {"x": -15.0, "y": -10.0, "yaw": 0.0}}, {"id": "B", "pose": {"x": -15.0, "y": 4.0, "yaw": 1.57}}, {"id": "C", "pose": {"x": -2.0, "y": 7.0, "yaw": 0.0}}, {"id": "D", "pose": {"x": 15.0, "y": 4.0, "yaw": -1.57}}, {"id": "E", "pose": {"x": -2.0, "y": -10.0, "yaw": 3.14}}],
+  "passages": [
+    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -15.0, "y": -5.0, "yaw": 1.57}, "blocker_pose": {"x": -15.0, "y": -3.0, "yaw": 1.57}},
+    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -10.8, "y": 4.0, "yaw": 0.0}, "blocker_pose": {"x": -8.8, "y": 4.0, "yaw": 0.0}},
+    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 5.0, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": 7.0, "y": 12.0, "yaw": 0.0}},
+    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 15.0, "y": -1.0, "yaw": -1.57}, "blocker_pose": {"x": 15.0, "y": -3.0, "yaw": -1.57}},
+    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -10.8, "y": -10.0, "yaw": 0.0}, "blocker_pose": {"x": -8.8, "y": -10.0, "yaw": 0.0}}
+  ],
+  "entities": [{"id": "flag_A_1", "type": "A", "room_id": "A", "pose": {"x": -16.5, "y": -11.5, "yaw": 0.0}}, {"id": "flag_B_D_1", "type": "B", "room_id": "D", "pose": {"x": 14.0, "y": 5.5, "yaw": 0.0}}, {"id": "flag_B_E_1", "type": "B", "room_id": "E", "pose": {"x": -0.5, "y": -11.5, "yaw": 0.0}}],
+  "question": {"id": "farthest_b_from_a", "family": "semantic_distance_ranking", "text": "Which room containing a B flag is farthest from the A flag by the shortest currently traversable route?", "source_entity_type": "A", "candidate_entity_type": "B", "constraints": {"distance": "shortest_traversable_path", "unreachable": "exclude", "ties": "sorted_room_ids"}},
+  "hidden_changes": []
+}

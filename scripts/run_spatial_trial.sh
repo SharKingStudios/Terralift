@@ -5,9 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCENARIO="distance_ranking_flip"
 MODEL="${ANTHROPIC_MODEL:-claude-haiku-5-5}"
+PROMPT_CONDITION="neutral"
+TRIAL_SEED=""
 GUI=true
 RVIZ=true
 MOCK=false
+MOCK_STRATEGY="answer_flip"
 AUTO_CLOSE=false
 RESULTS_DIR="${TERRALIFT_RESULTS_DIR:-}"
 
@@ -16,10 +19,13 @@ usage() {
 Usage: ./scripts/run_spatial_trial.sh [options]
   --scenario NAME       Scenario JSON stem (default: distance_ranking_flip)
   --model MODEL         Anthropic model (default: $ANTHROPIC_MODEL)
+  --prompt-condition C  neutral (default) or verification_guided
+  --seed VALUE          Persist a paired-trial seed/label in trial metadata
   --gui                 Start Gazebo GUI (default)
   --headless            Run Gazebo server only (and disable RViz)
   --no-rviz             Do not open RViz alongside the Gazebo GUI
   --mock                Use deterministic test fixture; never calls Anthropic
+  --mock-survey         Survey every passage with the test fixture; calibration only
   --close               Close Gazebo automatically after the trial
   --results-dir PATH    Override TERRALIFT_RESULTS_DIR
 EOF
@@ -29,16 +35,22 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --scenario) SCENARIO="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
+    --prompt-condition) PROMPT_CONDITION="$2"; shift 2 ;;
+    --seed) TRIAL_SEED="$2"; shift 2 ;;
     --gui) GUI=true; RVIZ=true; shift ;;
     --headless) GUI=false; RVIZ=false; shift ;;
     --no-rviz) RVIZ=false; shift ;;
     --mock) MOCK=true; shift ;;
+    --mock-survey) MOCK=true; MOCK_STRATEGY="survey_passages"; shift ;;
     --close) AUTO_CLOSE=true; shift ;;
     --results-dir) RESULTS_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+[[ "$PROMPT_CONDITION" == "neutral" || "$PROMPT_CONDITION" == "verification_guided" ]] || {
+  echo "--prompt-condition must be neutral or verification_guided" >&2; exit 2;
+}
 
 # Editors on Windows commonly save `.env` with CRLF line endings. Source a
 # newline-normalized stream so the same untracked credential file works from
@@ -55,6 +67,23 @@ fi
 set +u
 source /opt/ros/jazzy/setup.bash
 set -u
+# Keep this experiment separate from a robot bringup or an old Gazebo/ROS
+# run left on the default domain.  Every ROS process launched by this script,
+# including the bridge and Nav2, inherits the same domain.  A custom Gazebo
+# partition remains opt-in: this WSL/Gazebo combination has reliable sensor
+# bridging on its normal transport partition, while a custom partition needs
+# host-specific validation before use.
+SPATIAL_ROS_DOMAIN_ID="${SPATIAL_ROS_DOMAIN_ID:-42}"
+[[ "$SPATIAL_ROS_DOMAIN_ID" =~ ^[0-9]+$ ]] && (( SPATIAL_ROS_DOMAIN_ID <= 232 )) || {
+  echo "SPATIAL_ROS_DOMAIN_ID must be an integer from 0 to 232." >&2; exit 2;
+}
+export ROS_DOMAIN_ID="$SPATIAL_ROS_DOMAIN_ID"
+if [[ -n "${SPATIAL_GZ_PARTITION:-}" ]]; then
+  export GZ_PARTITION="$SPATIAL_GZ_PARTITION"
+else
+  unset GZ_PARTITION
+fi
+echo "Spatial experiment isolation: ROS_DOMAIN_ID=$ROS_DOMAIN_ID, GZ_PARTITION=${GZ_PARTITION:-default}"
 for command in ros2 colcon gz python3; do
   command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
@@ -97,6 +126,9 @@ if [[ "$MOCK" == true ]]; then
 else
   echo "Starting ${SCENARIO} (real Anthropic API)"
 fi
-ros2 launch terralift spatial_experiment.launch.py \
-  gui:="$GUI" rviz:="$RVIZ" scenario_path:="$SCENARIO_PATH" map_yaml:="$MAP_YAML" \
-  model:="$MODEL" mock:="$MOCK" auto_close:="$AUTO_CLOSE"
+LAUNCH_ARGS=(
+  "gui:=$GUI" "rviz:=$RVIZ" "scenario_path:=$SCENARIO_PATH" "map_yaml:=$MAP_YAML"
+  "model:=$MODEL" "prompt_condition:=$PROMPT_CONDITION" "mock:=$MOCK" "mock_strategy:=$MOCK_STRATEGY" "auto_close:=$AUTO_CLOSE"
+)
+[[ -n "$TRIAL_SEED" ]] && LAUNCH_ARGS+=("trial_seed:=$TRIAL_SEED")
+ros2 launch terralift spatial_experiment.launch.py "${LAUNCH_ARGS[@]}"

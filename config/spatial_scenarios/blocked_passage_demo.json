@@ -1,27 +1,18 @@
 {
   "scenario_id": "blocked_passage_demo",
-  "title": "Legacy direct-passage inspection scenario",
+  "title": "Legacy A-E passage closure",
+  "study_control": {"change_kind": "topological", "answer_effect": "flip"},
   "world_name": "spatial_warehouse",
-  "robot_start": {"x": -17.30, "y": -12.00, "yaw": 0.0},
-  "rooms": [
-    {"id": "A", "pose": {"x": -17.30, "y": -12.00}},
-    {"id": "B", "pose": {"x": -17.30, "y": 12.00}},
-    {"id": "C", "pose": {"x": 0.00, "y": 12.00}},
-    {"id": "D", "pose": {"x": 17.30, "y": 12.00}},
-    {"id": "E", "pose": {"x": 17.30, "y": -12.00}}
-  ],
+  "robot_start": {"x": -15.0, "y": -10.0, "yaw": 0.0},
+  "rooms": [{"id": "A", "pose": {"x": -15.0, "y": -10.0, "yaw": 0.0}}, {"id": "B", "pose": {"x": -15.0, "y": 4.0, "yaw": 1.57}}, {"id": "C", "pose": {"x": -2.0, "y": 7.0, "yaw": 0.0}}, {"id": "D", "pose": {"x": 15.0, "y": 4.0, "yaw": -1.57}}, {"id": "E", "pose": {"x": -2.0, "y": -10.0, "yaw": 3.14}}],
   "passages": [
-    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -16.0, "y": -2.0, "yaw": 1.57}, "blocker_pose": {"x": -16.00, "y": 0.00, "yaw": 1.57}},
-    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -10.4, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": -8.40, "y": 12.00, "yaw": 0.0}},
-    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 7.6, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": 9.60, "y": 12.00, "yaw": 0.0}},
-    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 16.0, "y": 2.0, "yaw": -1.57}, "blocker_pose": {"x": 16.00, "y": 0.00, "yaw": 1.57}},
-    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -2.0, "y": -12.0, "yaw": 0.0}, "blocker_pose": {"x": 0.00, "y": -12.00, "yaw": 0.0}}
+    {"id": "A_B", "rooms": ["A", "B"], "cost": 1, "inspection_pose": {"x": -15.0, "y": -5.0, "yaw": 1.57}, "blocker_pose": {"x": -15.0, "y": -3.0, "yaw": 1.57}},
+    {"id": "B_C", "rooms": ["B", "C"], "cost": 1, "inspection_pose": {"x": -10.8, "y": 4.0, "yaw": 0.0}, "blocker_pose": {"x": -8.8, "y": 4.0, "yaw": 0.0}},
+    {"id": "C_D", "rooms": ["C", "D"], "cost": 1, "inspection_pose": {"x": 5.0, "y": 12.0, "yaw": 0.0}, "blocker_pose": {"x": 7.0, "y": 12.0, "yaw": 0.0}},
+    {"id": "D_E", "rooms": ["D", "E"], "cost": 1, "inspection_pose": {"x": 15.0, "y": -1.0, "yaw": -1.57}, "blocker_pose": {"x": 15.0, "y": -3.0, "yaw": -1.57}},
+    {"id": "A_E", "rooms": ["A", "E"], "cost": 1, "inspection_pose": {"x": -10.8, "y": -10.0, "yaw": 0.0}, "blocker_pose": {"x": -8.8, "y": -10.0, "yaw": 0.0}}
   ],
-  "entities": [
-    {"id": "flag_A_1", "type": "A", "room_id": "A"},
-    {"id": "flag_B_D_1", "type": "B", "room_id": "D"},
-    {"id": "flag_B_E_1", "type": "B", "room_id": "E"}
-  ],
+  "entities": [{"id": "flag_A_1", "type": "A", "room_id": "A", "pose": {"x": -16.5, "y": -11.5, "yaw": 0.0}}, {"id": "flag_B_D_1", "type": "B", "room_id": "D", "pose": {"x": 14.0, "y": 5.5, "yaw": 0.0}}, {"id": "flag_B_E_1", "type": "B", "room_id": "E", "pose": {"x": -0.5, "y": -11.5, "yaw": 0.0}}],
   "question": {"id": "farthest_b_from_a", "family": "semantic_distance_ranking", "text": "Which room containing a B flag is farthest from the A flag by the shortest currently traversable route?", "source_entity_type": "A", "candidate_entity_type": "B"},
   "hidden_changes": [{"type": "block_passage", "passage_id": "A_E"}]
 }

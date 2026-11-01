@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import runpy
+from collections import deque
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from terralift.claude_spatial_agent import ClaudeProtocolError, parse_tool_blocks
+from terralift.claude_spatial_agent import ClaudeProtocolError, PROMPT_CONDITIONS, parse_tool_blocks, prompt_condition, prompt_hash
 from terralift.spatial_data import TrialData
 from terralift.spatial_evaluator import evaluate_trial
 from terralift.spatial_memory import MemoryJournal, SpatialMemory
@@ -25,7 +26,38 @@ def test_distance_ranking_flip_and_question_definition():
     assert subject.answer_for_state(subject.initial_state())["answer"] == "D"
     modified = subject.answer_for_state(subject.modified_state())
     assert modified["answer"] == "E"
-    assert modified["distances"] == {"D": 3.0, "E": 4.0}
+    assert modified["distances"]["D"] == 3.0
+    assert modified["distances"]["E"] == 4.0
+
+
+def test_control_scenarios_have_declared_and_independently_validated_effects():
+    root = Path(__file__).parents[1] / "config" / "spatial_scenarios"
+    expectations = {
+        "distance_ranking_flip.json": ("topological", "flip", "D", "E"),
+        "topology_answer_invariant_bc_block.json": ("topological", "invariant", "D", "D"),
+        "no_change_control.json": ("none", "invariant", "D", "D"),
+        "semantic_answer_flip_move_b_d_to_c.json": ("semantic", "flip", "D", "C"),
+        "semantic_answer_invariant_move_b_e_to_b.json": ("semantic", "invariant", "D", "D"),
+    }
+    for filename, (kind, effect, before, after) in expectations.items():
+        subject = load_scenario(root / filename)
+        assert subject.study_control == {"change_kind": kind, "answer_effect": effect}
+        assert subject.answer_for_state(subject.initial_state())["answer"] == before
+        assert subject.answer_for_state(subject.modified_state())["answer"] == after
+
+
+def test_neutral_prompt_has_no_verification_intervention_and_auditable_hash():
+    neutral = prompt_condition("neutral")
+    assert neutral["id"] == "neutral"
+    assert "outdated" not in neutral["system"].lower()
+    assert "contradict" not in neutral["system"].lower()
+    assert "verify" not in neutral["system"].lower()
+    guided = prompt_condition("verification_guided")
+    assert "verification" in guided["system"].lower()
+    rendered = '{"question":"example"}'
+    settings = {"model": "claude-haiku-5-5", "max_output_tokens": 1200}
+    assert prompt_hash(neutral["system"], rendered, [], settings) == prompt_hash(neutral["system"], rendered, [], settings)
+    assert set(PROMPT_CONDITIONS) == {"neutral", "verification_guided"}
 
 
 def test_agent_seed_has_no_hidden_ground_truth():
@@ -34,7 +66,15 @@ def test_agent_seed_has_no_hidden_ground_truth():
     assert "hidden_changes" not in encoded
     assert "blocker_pose" not in encoded
     assert "modified_state" not in encoded
+    assert "scenario_id" not in seed
     assert seed["passages"]["A_E"]["traversable"] is True
+
+
+def test_visible_memory_excludes_descriptive_scenario_identity():
+    memory = SpatialMemory.from_scenario(scenario())
+    visible = memory.visible_context()
+    assert "scenario_id" not in visible
+    assert "distance_ranking_flip" not in json.dumps(visible)
 
 
 def test_memory_journal_persists_complete_revision_history(tmp_path: Path):
@@ -85,6 +125,27 @@ def test_evaluator_separates_belief_revision_from_answer_correctness():
     assert metrics["final_answer_correct"] is True
     assert metrics["changed_edge_revised_correctly"] is True
     assert metrics["answer_consistent_with_final_memory"] is True
+    assert metrics["memory_accuracy"] == 1.0
+    assert metrics["verification_coverage"] == 1.0
+
+
+def test_correct_answer_without_evidence_is_not_scored_as_evidence_supported():
+    subject = scenario()
+    memory = SpatialMemory.from_scenario(subject)
+    metrics = evaluate_trial(subject, memory.to_dict(), {"answer": "E", "evidence_ids": []}, [], {}, "complete")
+    assert metrics["final_answer_correct"] is True
+    assert metrics["answer_supported_by_observed_evidence"] is False
+    assert metrics["verification_coverage"] == 0.0
+
+
+def test_unchanged_control_does_not_treat_a_cited_selective_check_as_sufficient_evidence():
+    subject = load_scenario(Path(__file__).parents[1] / "config" / "spatial_scenarios" / "no_change_control.json")
+    memory = SpatialMemory.from_scenario(subject)
+    evidence = {"evidence_id": "observation_001", "passage_id": "A_E", "observed_status": "open"}
+    metrics = evaluate_trial(subject, memory.to_dict(), {"answer": "D", "evidence_ids": ["observation_001"]}, [evidence], {}, "complete")
+    assert metrics["final_answer_correct"] is True
+    assert metrics["cited_evidence_is_observation_accurate"] is True
+    assert metrics["answer_supported_by_observed_evidence"] is False
 
 
 def test_passage_inspection_uses_nearest_valid_lidar_return_at_the_pose():
@@ -116,6 +177,33 @@ def test_passage_inspection_ignores_nearby_corridor_side_walls():
     assert observed["nearest_lidar_range_m"] == 5.0
 
 
+def test_passage_inspection_refuses_an_off_heading_lidar_reading():
+    subject = scenario()
+    adapter = ProximityObservationAdapter(subject)
+    pose = subject.passages["C_D"].inspection_pose
+    adapter.update_pose(type(pose)(pose.x, pose.y, pose.yaw + 0.25))
+    adapter.update_scan(ScanSnapshot(
+        ranges=[0.2, 5.0, 0.2], angle_min=-1.5708,
+        angle_increment=1.5708, range_min=0.12, range_max=12.0,
+    ))
+    observed = adapter.inspect_passage("C_D")
+    assert observed["observed_status"] == "unobserved"
+    assert observed["reason"] == "inspection_heading_outside_tolerance"
+
+
+def test_passage_inspection_treats_infinite_local_lidar_rays_as_clear_to_range():
+    subject = scenario()
+    adapter = ProximityObservationAdapter(subject)
+    adapter.update_pose(subject.passages["B_C"].inspection_pose)
+    adapter.update_scan(ScanSnapshot(
+        ranges=[float("inf"), float("inf"), float("inf")], angle_min=-0.2,
+        angle_increment=0.2, range_min=0.12, range_max=12.0,
+    ))
+    observed = adapter.inspect_passage("B_C")
+    assert observed["observed_status"] == "open"
+    assert observed["nearest_lidar_range_m"] == 12.0
+
+
 def test_robot_wheel_axes_match_the_rolled_wheel_link_frame():
     root = ET.parse(Path(__file__).parents[1] / "models" / "terralift_mecanum" / "model.sdf").getroot()
     axes = [joint.find("axis/xyz") for joint in root.findall(".//joint") if joint.attrib["name"].endswith("_joint")]
@@ -123,20 +211,32 @@ def test_robot_wheel_axes_match_the_rolled_wheel_link_frame():
     assert all(axis is not None and axis.text.strip() == "0 0 -1" for axis in axes)
 
 
-def test_static_map_matches_resized_physical_walls_and_scenario():
+def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):
     """Catch a resized map/scenario drifting out of sync with Gazebo geometry."""
     root = Path(__file__).parents[1]
     generator = runpy.run_path(str(root / "scripts" / "generate_spatial_map.py"))
     regions = generator["FREE_REGIONS"]
+    pgm_path = tmp_path / "spatial_map.pgm"
+    generator["write_map"](pgm_path, pgm_path.with_suffix(".yaml"))
+    pgm_tokens = [token for token in pgm_path.read_text(encoding="ascii").split() if token != "#"]
+    # The generated P2 header is fixed and its only comment is `# generated
+    # by Terralift`, whose individual words are harmlessly skipped below.
+    assert pgm_tokens[:4] == ["P2", "generated", "by", "Terralift"]
+    width, height, maximum = map(int, pgm_tokens[4:7])
+    assert maximum == 255
+    pixels = list(map(int, pgm_tokens[7:]))
+    assert len(pixels) == width * height
     world = ET.parse(root / "worlds" / "spatial_warehouse.sdf").getroot()
     walls = []
     for model in world.findall("./world/model"):
         if model.attrib["name"] == "ground":
             continue
-        for collision in model.findall("./link/collision"):
-            sx, sy, _ = map(float, collision.findtext("geometry/box/size").split())
-            x, y, *_ = map(float, collision.findtext("pose").split())
-            walls.append((x - sx / 2, x + sx / 2, y - sy / 2, y + sy / 2))
+        for link in model.findall("./link"):
+            for collision in link.findall("collision"):
+                sx, sy, _ = map(float, collision.findtext("geometry/box/size").split())
+                pose_text = collision.findtext("pose") or link.findtext("pose")
+                x, y, *_ = map(float, pose_text.split())
+                walls.append((x - sx / 2, x + sx / 2, y - sy / 2, y + sy / 2))
 
     def inside(x, y, rectangle):
         left, right, bottom, top = rectangle
@@ -146,13 +246,25 @@ def test_static_map_matches_resized_physical_walls_and_scenario():
     for ix in range(168):
         for iy in range(128):
             x, y = -21 + (ix + 0.5) * 0.25, -16 + (iy + 0.5) * 0.25
-            mapped_free = any(inside(x, y, region) for region in regions)
+            region_free = any(inside(x, y, region) for region in regions)
+            pixel_x = int((x - generator["ORIGIN_X"]) / generator["RESOLUTION"])
+            pixel_y = int((y - generator["ORIGIN_Y"]) / generator["RESOLUTION"])
+            mapped_free = pixels[(height - 1 - pixel_y) * width + pixel_x] == 254
             physical_wall = any(inside(x, y, wall) for wall in walls)
-            assert mapped_free != physical_wall, (x, y)
+            # The static map is the navigation authority. Every map-free cell
+            # must be physically clear; walls may cover additional exterior
+            # space outside the deliberately enclosed floor plan.
+            assert not (mapped_free and physical_wall), (x, y)
+            assert not (mapped_free and not region_free), (x, y)
 
     subject = scenario()
     spawn = list(map(float, world.findtext("./world/include/pose").split()))
     assert spawn[:2] == [subject.robot_start.x, subject.robot_start.y]
+    for room in subject.rooms.values():
+        pixel_x = int((room.pose.x - generator["ORIGIN_X"]) / generator["RESOLUTION"])
+        pixel_y = int((room.pose.y - generator["ORIGIN_Y"]) / generator["RESOLUTION"])
+        assert pixels[(height - 1 - pixel_y) * width + pixel_x] == 254, room.room_id
+        assert not any(inside(room.pose.x, room.pose.y, wall) for wall in walls), room.room_id
     for passage in subject.passages.values():
         pose, barrier = passage.inspection_pose, passage.blocker_pose
         assert any(inside(pose.x, pose.y, region) for region in regions)
@@ -161,3 +273,58 @@ def test_static_map_matches_resized_physical_walls_and_scenario():
     barrier_width = float(blocker.findtext(".//collision/geometry/box/size").split()[1])
     for left, right, bottom, top in regions[5:]:
         assert barrier_width > min(right - left, top - bottom)
+
+
+def test_each_declared_passage_has_a_direct_wall_free_static_map_route(tmp_path: Path):
+    """Prevent an L-corridor side wall from accidentally sealing its turn.
+
+    Two rooms can remain globally connected by the rest of the cycle even if
+    their declared direct passage is sealed. Search only the two endpoint
+    rooms and that passage's own floor rectangles, so this catches exactly
+    that error.
+    """
+    root = Path(__file__).parents[1]
+    generator = runpy.run_path(str(root / "scripts" / "generate_spatial_map.py"))
+    regions = generator["FREE_REGIONS"]
+    pgm_path = tmp_path / "connectivity_map.pgm"
+    generator["write_map"](pgm_path, pgm_path.with_suffix(".yaml"))
+    tokens = [token for token in pgm_path.read_text(encoding="ascii").split() if token != "#"]
+    width, height = map(int, tokens[4:6])
+    pixels = list(map(int, tokens[7:]))
+    subject = scenario()
+    region_indexes = {
+        "A_B": (0, 1, 5), "B_C": (1, 2, 6), "C_D": (2, 3, 7, 8),
+        "D_E": (3, 4, 9, 10), "A_E": (0, 4, 11),
+    }
+
+    def cell_for(x: float, y: float) -> tuple[int, int]:
+        return (
+            int((x - generator["ORIGIN_X"]) / generator["RESOLUTION"]),
+            int((y - generator["ORIGIN_Y"]) / generator["RESOLUTION"]),
+        )
+
+    def free_and_allowed(cell: tuple[int, int], allowed_regions) -> bool:
+        px, py = cell
+        if not (0 <= px < width and 0 <= py < height):
+            return False
+        if pixels[(height - 1 - py) * width + px] != 254:
+            return False
+        x = generator["ORIGIN_X"] + (px + 0.5) * generator["RESOLUTION"]
+        y = generator["ORIGIN_Y"] + (py + 0.5) * generator["RESOLUTION"]
+        return any(left < x < right and bottom < y < top for left, right, bottom, top in allowed_regions)
+
+    for passage_id, indexes in region_indexes.items():
+        passage = subject.passages[passage_id]
+        start_room, end_room = (subject.rooms[room_id] for room_id in passage.rooms)
+        start, target = cell_for(start_room.pose.x, start_room.pose.y), cell_for(end_room.pose.x, end_room.pose.y)
+        allowed_regions = [regions[index] for index in indexes]
+        assert free_and_allowed(start, allowed_regions), passage_id
+        assert free_and_allowed(target, allowed_regions), passage_id
+        queue, visited = deque([start]), {start}
+        while queue and target not in visited:
+            px, py = queue.popleft()
+            for candidate in ((px - 1, py), (px + 1, py), (px, py - 1), (px, py + 1)):
+                if candidate not in visited and free_and_allowed(candidate, allowed_regions):
+                    visited.add(candidate)
+                    queue.append(candidate)
+        assert target in visited, f"{passage_id} is sealed by permanent wall geometry"

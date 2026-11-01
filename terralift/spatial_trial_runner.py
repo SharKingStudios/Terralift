@@ -21,13 +21,22 @@ from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
-from .claude_spatial_agent import ClaudeAgent, ClaudeProtocolError, MockClaudeAgent, parse_tool_blocks
+from .claude_spatial_agent import (
+    TOOLS,
+    ClaudeAgent,
+    ClaudeProtocolError,
+    MockClaudeAgent,
+    prompt_condition,
+    prompt_hash,
+    parse_tool_blocks,
+)
 from .gazebo_world_manager import GazeboWorldManager
 from .spatial_data import LiveTranscript, RosbagRecorder, TrialData, open_live_terminal
 from .spatial_evaluator import evaluate_trial
 from .spatial_memory import MemoryJournal, SpatialMemory
 from .spatial_models import Pose2D, default_scenario_path, load_scenario
 from .spatial_observer import ProximityObservationAdapter, ScanSnapshot
+from .spatial_trial_audit import audit_trial
 
 
 RECORD_TOPICS = [
@@ -43,7 +52,10 @@ class SpatialTrialRunner(Node):
         self.declare_parameter("scenario_path", str(default_scenario_path()))
         self.declare_parameter("results_dir", "")
         self.declare_parameter("model", "")
+        self.declare_parameter("prompt_condition", "neutral")
+        self.declare_parameter("trial_seed", "")
         self.declare_parameter("mock", False)
+        self.declare_parameter("mock_strategy", "answer_flip")
         self.declare_parameter("open_chat_terminal", True)
         self.declare_parameter("max_api_calls", 8)
         self.declare_parameter("max_output_tokens", 1200)
@@ -56,6 +68,8 @@ class SpatialTrialRunner(Node):
         self.declare_parameter("auto_close", False)
 
         self.scenario = load_scenario(str(self.get_parameter("scenario_path").value))
+        self.prompt_condition = prompt_condition(str(self.get_parameter("prompt_condition").value).strip() or "neutral")
+        self.trial_seed = str(self.get_parameter("trial_seed").value).strip()
         configured_root = str(self.get_parameter("results_dir").value).strip() or None
         self.data = TrialData(self.scenario.scenario_id, configured_root)
         self.transcript = LiveTranscript(self.data)
@@ -92,12 +106,17 @@ class SpatialTrialRunner(Node):
         self.data.write_json("manifest.json", {
             "trial_id": self.data.root.name, "scenario_id": self.scenario.scenario_id,
             "status": "initialized", "result_directory": str(self.data.root),
-            "record_topics": RECORD_TOPICS,
+            "record_topics": RECORD_TOPICS, "prompt_condition": {
+                "id": self.prompt_condition["id"], "version": self.prompt_condition["version"],
+            }, "trial_seed": self.trial_seed or None,
         })
         # Scenario is deliberately agent-visible only; controller truth has its own file.
         self.data.write_json("scenario.json", self.scenario.to_agent_seed())
         self.data.write_json("ground_truth.json", self.scenario.ground_truth_record())
-        self.data.write_json("ai/api_usage.json", {"api_calls": 0, "input_tokens": 0, "output_tokens": 0, "api_latency_sec": 0.0})
+        self.data.write_json("ai/api_usage.json", {
+            "api_calls": 0, "input_tokens": 0, "output_tokens": 0,
+            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "api_latency_sec": 0.0,
+        })
         (self.data.navigation_dir / "trajectory.csv").write_text(
             "simulation_time,x,y,yaw,linear_x,angular_z\n", encoding="utf-8"
         )
@@ -159,7 +178,10 @@ class SpatialTrialRunner(Node):
         status = "failed"
         bag_result: Dict[str, Any] = {"valid": False, "reason": "not_started"}
         try:
-            self.transcript.line("EXPERIMENT", f"{self.scenario.scenario_id}; results: {self.data.root}")
+            self.transcript.line(
+                "EXPERIMENT",
+                f"{self.scenario.scenario_id}; prompt={self.prompt_condition['id']}:{self.prompt_condition['version']}; results: {self.data.root}",
+            )
             self.transcript.line("QUESTION", self.scenario.question.text)
             terminal_opened = open_live_terminal(self.transcript.path, bool(self.get_parameter("open_chat_terminal").value))
             self._publish_event("live_transcript_ready", terminal_opened=terminal_opened)
@@ -209,9 +231,11 @@ class SpatialTrialRunner(Node):
             )
             metrics["bag_validation"] = bag_result
             self.data.write_json("metrics.json", metrics)
+            audit = audit_trial(self.data.root)
+            self.data.write_json("audit.json", audit)
             summary = {"trial_id": self.data.root.name, "status": status, "answer": self._final_answer,
                        "correct": metrics["final_answer_correct"], "bag_validation": bag_result,
-                       "metrics": metrics, "result_directory": str(self.data.root)}
+                       "metrics": metrics, "audit": audit, "result_directory": str(self.data.root)}
             self.data.write_json("trial_summary.json", summary)
             self.data.status(final_status, result_directory=str(self.data.root), bag_validation=bag_result)
             self.transcript.line("EXPERIMENT COMPLETE", f"status={final_status}; answer={self._final_answer}; correct={metrics['final_answer_correct']}; results={self.data.root}")
@@ -221,16 +245,45 @@ class SpatialTrialRunner(Node):
 
     def _run_agent_loop(self, started: float) -> None:
         use_mock = bool(self.get_parameter("mock").value)
-        self._agent = MockClaudeAgent(self.data, self.transcript) if use_mock else ClaudeAgent(
+        self._agent = MockClaudeAgent(
+            self.data, self.transcript, str(self.get_parameter("mock_strategy").value)
+        ) if use_mock else ClaudeAgent(
             str(self.get_parameter("model").value).strip() or None, None, self.data, self.transcript,
+            system_prompt=self.prompt_condition["system"], tools=TOOLS,
             max_tokens=int(self.get_parameter("max_output_tokens").value))
-        initial = {"question": self.memory.question, "spatial_memory": self.memory.visible_context(),
-                   "instruction": "Decide which allowed tool to call first. Use observations, revise memory explicitly, then answer."}
+        initial = {
+            "question": self.memory.question,
+            "spatial_memory": self.memory.visible_context(),
+            "task": "Answer the spatial question about the current environment using the available tools as you judge appropriate.",
+        }
         # This assertion is both documentation and a protection against accidental prompt expansion.
-        if "hidden_changes" in json.dumps(initial) or "modified_state" in json.dumps(initial):
+        rendered_initial = json.dumps(initial, sort_keys=True)
+        prompt_surface = json.dumps({"system": self.prompt_condition["system"], "user": rendered_initial, "tools": TOOLS}, sort_keys=True)
+        forbidden_prompt_fields = ('"hidden_changes"', '"modified_state"', '"modified_answer"', '"ground_truth"', '"blocker_pose"', '"study_control"')
+        if any(field in prompt_surface for field in forbidden_prompt_fields):
             raise RuntimeError("ground-truth isolation violation while preparing LLM prompt")
-        messages: List[Dict[str, Any]] = [{"role": "user", "content": json.dumps(initial, sort_keys=True)}]
-        self.transcript.line("CONTROLLER", "Initial agent-visible memory supplied.", memory_version=self.memory.version)
+        model_settings = {
+            "model": self._agent.model if hasattr(self._agent, "model") else "mock",
+            "max_output_tokens": int(self.get_parameter("max_output_tokens").value),
+            "max_api_calls": int(self.get_parameter("max_api_calls").value),
+            "max_total_input_tokens": int(self.get_parameter("max_total_input_tokens").value),
+            "max_total_output_tokens": int(self.get_parameter("max_total_output_tokens").value),
+            "prompt_caching": "disabled",
+        }
+        self.data.write_json("ai/prompt_context.json", {
+            "prompt_schema_version": "1.0.0",
+            "condition": {"id": self.prompt_condition["id"], "version": self.prompt_condition["version"]},
+            "system_prompt": self.prompt_condition["system"],
+            "initial_user_prompt": rendered_initial,
+            "tool_schemas": TOOLS,
+            "model_settings": model_settings,
+            "prompt_hash": prompt_hash(self.prompt_condition["system"], rendered_initial, TOOLS, model_settings),
+        })
+        messages: List[Dict[str, Any]] = [{"role": "user", "content": rendered_initial}]
+        self.transcript.line(
+            "CONTROLLER", "Initial agent-visible memory supplied.", memory_version=self.memory.version,
+            prompt_condition=self.prompt_condition["id"],
+        )
         while self._final_answer is None:
             if time.monotonic() - started > float(self.get_parameter("trial_timeout_sec").value):
                 raise RuntimeError("Timed out: trial wall-clock limit reached")

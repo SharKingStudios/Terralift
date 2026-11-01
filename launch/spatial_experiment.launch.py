@@ -24,11 +24,14 @@ def generate_launch_description() -> LaunchDescription:
     scenario_path = DeclareLaunchArgument("scenario_path", default_value=scenario)
     map_yaml = DeclareLaunchArgument("map_yaml", description="Generated static map YAML")
     rviz = DeclareLaunchArgument("rviz", default_value="true", description="Open the RViz sensor/map view")
-    map_to_odom_x = DeclareLaunchArgument("map_to_odom_x", default_value="-17.3")
-    map_to_odom_y = DeclareLaunchArgument("map_to_odom_y", default_value="-12.0")
+    map_to_odom_x = DeclareLaunchArgument("map_to_odom_x", default_value="-15.0")
+    map_to_odom_y = DeclareLaunchArgument("map_to_odom_y", default_value="-10.0")
     model = DeclareLaunchArgument("model", default_value="")
+    prompt_condition = DeclareLaunchArgument("prompt_condition", default_value="neutral")
+    trial_seed = DeclareLaunchArgument("trial_seed", default_value="")
     results_dir = DeclareLaunchArgument("results_dir", default_value="")
     mock = DeclareLaunchArgument("mock", default_value="false")
+    mock_strategy = DeclareLaunchArgument("mock_strategy", default_value="answer_flip")
     open_chat_terminal = DeclareLaunchArgument("open_chat_terminal", default_value="true")
     auto_close = DeclareLaunchArgument("auto_close", default_value="false")
     run_trial = DeclareLaunchArgument("run_trial", default_value="true")
@@ -117,7 +120,9 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{
             "use_sim_time": True, "scenario_path": LaunchConfiguration("scenario_path"),
             "results_dir": LaunchConfiguration("results_dir"), "model": LaunchConfiguration("model"),
+            "prompt_condition": LaunchConfiguration("prompt_condition"), "trial_seed": LaunchConfiguration("trial_seed"),
             "mock": LaunchConfiguration("mock"), "open_chat_terminal": LaunchConfiguration("open_chat_terminal"),
+            "mock_strategy": LaunchConfiguration("mock_strategy"),
             "resource_root": share, "auto_close": LaunchConfiguration("auto_close"),
         }],
     )
@@ -132,7 +137,7 @@ def generate_launch_description() -> LaunchDescription:
         event_handler=OnProcessExit(target_action=runner, on_exit=[EmitEvent(event=Shutdown(reason="spatial trial completed"))]),
     )
     return LaunchDescription([
-        gui, scenario_path, map_yaml, rviz, map_to_odom_x, map_to_odom_y, model, results_dir, mock,
+        gui, scenario_path, map_yaml, rviz, map_to_odom_x, map_to_odom_y, model, prompt_condition, trial_seed, results_dir, mock, mock_strategy,
         open_chat_terminal, auto_close, run_trial, gazebo_gui, gazebo_headless, begin_ros, rviz_view,
         begin_trial, shutdown_after_runner,
     ])

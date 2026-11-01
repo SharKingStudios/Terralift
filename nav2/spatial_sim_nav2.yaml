@@ -27,7 +27,13 @@ controller_server:
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.35
-      yaw_goal_tolerance: 0.30
+      # Passage sensing needs a stable doorway heading; a loose heading lets a
+      # narrow LiDAR cone see a side wall instead of the passage ahead.
+      # Match the independent observation guard. The physical base settles
+      # repeatably within 0.20 rad; requiring 0.12 rad made valid room and
+      # doorway goals idle while the controller commanded zero. This remains
+      # inside the 0.22-rad LiDAR evidence cone.
+      yaw_goal_tolerance: 0.20
       stateful: true
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"

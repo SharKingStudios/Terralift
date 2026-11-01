@@ -2,7 +2,11 @@
 
 This is an isolated ROS 2 Jazzy / Gazebo Harmonic demonstration for Terralift. It does not start the physical drivetrain, camera, LiDAR, or the existing hardware launch files.
 
-The default `distance_ranking_flip` trial has five visible warehouse zones, `A`–`E`, arranged as a cycle. One A flag is in A; B flags are in D and E. In the historical memory, A–E is open, so D is the farthest B-flag room. Before Claude receives any prompt, the controller inserts a bright physical barrier into A–E. The new deterministic answer is E. Claude receives only the original memory and sensor observations—not the barrier, its changed graph, or the changed answer—and must inspect, revise its memory, and answer.
+The default `distance_ranking_flip` trial has five visible warehouse zones, `A`–`E`, arranged as an asymmetric enclosed loop. A recorded map contains one A flag in A and B flags in D and E; there is deliberately no B flag beside the robot's A-room spawn. A–E is initially shown as open, making D the farthest B-flag room. Before Claude receives any prompt, the controller inserts a bright physical barrier into A–E, making E the deterministic answer. Claude receives only the historical map and local tool observations—not the barrier, its changed graph, or the changed answer.
+
+The current world has one A flag in A and B flags only in D and E. There is deliberately no B marker in A or beside the robot spawn. The red A--E passage is the dynamically blocked link in the default answer-flip scenario.
+
+The primary prompt condition is `neutral`: it asks a spatial question-answering robot to answer about the current environment with its recorded map and available tools, but does **not** state that a change happened, tell it to inspect, or tell it to revise memory. `verification_guided` is a separately versioned intervention that adds those instructions. A premature or incorrect `answer_question` call remains valid experimental behavior and is recorded rather than blocked.
 
 The robot is an included blue-and-orange Terralift-inspired four-wheel base with visibly mecanum-style wheels. For reliable Nav2 movement it uses Gazebo's maintained differential-drive system rather than unvalidated mecanum contact physics. This is deliberate: the experiment tests high-level belief revision, while preserving a physically visible robot, real collision geometry, LiDAR, `/clock`, odometry, Nav2 goals, and dynamic Gazebo entities.
 
@@ -22,6 +26,12 @@ cp .env.example .env
 That starts the visible Gazebo trial with `claude-haiku-5-5` by default.
 RViz also opens by default with the static map, live LiDAR, TF, and Nav2
 paths. Pass `--no-rviz` to keep Gazebo without the RViz window.
+
+Choose the guided ablation explicitly; the neutral condition is the default:
+
+```bash
+./scripts/run_spatial_trial.sh --prompt-condition verification_guided
+```
 
 ### Important: use WSL Bash, not PowerShell, for `.sh` files
 
@@ -99,6 +109,11 @@ build packages. The normal run script creates its own Python virtual
 environment and installs the pinned Anthropic SDK automatically. Keep the API
 key only in `.env`, never in an agent prompt, command history, commit, or log.
 The launcher accepts both Windows (CRLF) and Linux (LF) `.env` line endings.
+It defaults to `ROS_DOMAIN_ID=42`, isolating the experiment from stale ROS
+sessions on the default domain. Override it in `.env` only when you
+deliberately need a different isolated domain. A custom `GZ_PARTITION` is
+available as an advanced opt-in, but should be host-validated first because
+some WSL/Gazebo combinations do not bridge sensor traffic across it reliably.
 
 For the visible GUI on Windows, use WSL 2 with current WSLg and a current GPU
 driver. If a machine has no usable graphical acceleration, the same experiment
@@ -135,16 +150,19 @@ The command builds the package, regenerates a map from permanent warehouse geome
 The enclosed-room layout is a cycle of dedicated corridors:
 
 ```text
-[B] -- [C] -- [D]
- |                 |
-[A] ------------ [E]
+                   [C] ---------+
+ [B] --------------+             |
+  |                               [D]
+ [A] -- red A--E -- [E] <---------+
 ```
 
 Each corridor is physically walled from the others; another route becomes
-visible only after the robot enters its endpoint room. The layout is twice
-its original horizontal size: corridors are 4.8 m wide, rooms A/B/D/E are
-7.4 x 8.0 m, and room C is 9.6 x 6.4 m. The static map covers 48 x 40 m
-at the original 0.05 m resolution. Robot dimensions are unchanged.
+visible only after the robot enters its endpoint room. A--B is vertical,
+B--C is horizontal, C--D goes right then down, D--E goes down then left, and
+the low A--E connection is red. Corridors are 2.4 m wide. A, B, and D are
+7.4 x 7.2 m; E is 8.6 x 7.2 m; C is intentionally tall at 8.6 x 14.0 m.
+The static map covers 48 x 40 m at the original 0.05 m resolution. Robot
+dimensions are unchanged.
 
 Nav2 uses the full 0.90 x 0.82 m chassis-and-wheel envelope with 0.10 m
 padding in both costmaps. DWB checks the oriented footprint for collisions;
@@ -181,6 +199,12 @@ Useful options:
 # Explicit real model choice
 ./scripts/run_spatial_trial.sh --model claude-haiku-5-5 --gui
 
+# Primary autonomous-verification condition (the default).
+./scripts/run_spatial_trial.sh --prompt-condition neutral
+
+# Guided-verification ablation, not the primary condition.
+./scripts/run_spatial_trial.sh --prompt-condition verification_guided
+
 # No GUI for a real trial
 ./scripts/run_spatial_trial.sh --headless
 
@@ -215,8 +239,9 @@ Claude has only these validated client-side tools:
 Passage inspection drives to the configured doorway pose and evaluates only a
 0.22-radian cone of the actual bridged LiDAR scan toward the fixed doorway.
 That avoids treating nearby corridor side walls as a blockage. The 2.0 m
-threshold is calibrated for the 0.55 m forward scanner mount, Nav2 goal
-tolerance, and the spawned 5.4 m cross-corridor collision barrier. The static
+threshold is calibrated for the 0.55 m forward scanner mount, the matched
+0.20-radian Nav2/observation heading tolerance, and the spawned cross-corridor
+collision barrier. The static
 map deliberately remains open at that doorway, so the barrier reaches Nav2
 only through live LiDAR.
 
@@ -233,7 +258,32 @@ reasoning—not a benchmark of visual marker perception.
 - `update_memory(updates, evidence_ids)`
 - `answer_question(answer, evidence_ids)`
 
-It cannot publish velocity commands. Memory changes must cite a recorded observation of the actual passage or entity. The evaluator separately scores change detection, belief revision, answer correctness, graph accuracy, memory/answer consistency, and evidence support.
+It cannot publish velocity commands. Memory changes must cite a recorded observation of the actual passage or entity; `answer_question` has no such prerequisite. The evaluator separately scores answer accuracy, full memory accuracy, belief-answer consistency, local-observation accuracy, changed-component verification coverage, revision accuracy, exploration cost, and API usage. A correct answer is never treated as proof that enough evidence was collected.
+
+## Pre-batch controls and paired pilot
+
+The available controls are validated on load against the true scenario graph:
+
+| Scenario | Change type | Answer effect |
+| --- | --- | --- |
+| `distance_ranking_flip` | A–E physical closure | flips D → E |
+| `topology_answer_invariant_bc_block` | B–C physical closure | remains D |
+| `no_change_control` | none | remains D |
+| `semantic_answer_flip_move_b_d_to_c` | B flag D → C | flips D → C |
+| `semantic_answer_invariant_move_b_e_to_b` | non-farthest B flag E → B | remains D |
+
+Run the small paired pilot before any matrix. It runs neutral and guided
+conditions against the identical fixed label/seed for a topology-flip case,
+an unchanged control, and a semantic answer-invariant case—six trials total.
+It auto-closes each completed simulation and does not start any full batch:
+
+```bash
+./scripts/run_spatial_pilot.sh
+```
+
+Use `--headless` only when no display is available. The results root receives
+`pilot_summary.json`; each individual trial also receives `audit.json`. Review
+the saved API requests/responses and local-observation logs before proceeding.
 
 ## Results and replay
 
@@ -246,6 +296,7 @@ Each invocation allocates a new directory before Gazebo or Claude work begins:
   bag/metadata.yaml             bag/*.mcap
   ai/transcript.txt             ai/transcript.jsonl
   ai/requests_responses.jsonl   ai/tool_results.jsonl    ai/api_usage.json
+  ai/prompt_context.json        audit.json
   memory/initial_memory.json    memory/snapshots.jsonl
   memory/changes.jsonl          memory/final_memory.json
   navigation/goals.jsonl        navigation/observations.jsonl
@@ -277,9 +328,16 @@ The controller begins bag recording before applying the hidden change and valida
 | `ProximityObservationAdapter` | Converts only robot pose plus LaserScan / nearby markers into observation evidence. |
 | `SpatialMemory` + `MemoryJournal` | Versioned structured beliefs, snapshots after observations/decisions, and evidence-backed diffs. |
 | `ClaudeAgent` | Official Anthropic SDK tool-use protocol with complete visible request/response persistence and token/latency accounting. |
-| `spatial_evaluator.py` | Independent NetworkX scoring against controller ground truth. |
+| `spatial_evaluator.py` | Independent post-trial scoring against controller ground truth. |
 
 The map generator intentionally excludes dynamic barriers from the static map. The Nav2 global/local obstacle layers receive `/scan`, so a spawned barrier changes live costmaps; after removal, normal clearing rays restore traversability.
+
+The physical-passage result is derived from the live local LiDAR cone at the
+recorded inspection pose. Semantic flags are physically visible and movable in
+Gazebo, but their current interface is a range-gated symbolic simulated marker
+sensor, not camera, AprilTag, or learned-vision perception. It supports a
+controlled high-level semantic-belief condition only; do not report it as a
+benchmark of visual semantic perception.
 
 ## Troubleshooting
 
