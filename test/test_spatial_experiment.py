@@ -223,6 +223,30 @@ def test_robot_wheel_axes_match_the_rolled_wheel_link_frame():
     assert all(axis is not None and axis.text.strip() == "0 0 -1" for axis in axes)
 
 
+def test_navigation_odom_uses_collision_aware_model_pose_not_wheel_encoder():
+    """A stalled physical robot must never advance in RViz/Nav2 odometry."""
+    root = ET.parse(Path(__file__).parents[1] / "models" / "terralift_mecanum" / "model.sdf").getroot()
+    diff_drive = root.find(".//plugin[@name='gz::sim::systems::DiffDrive']")
+    model_pose_odom = root.find(".//plugin[@name='gz::sim::systems::OdometryPublisher']")
+    assert diff_drive is not None
+    assert diff_drive.findtext("odom_topic") == "/wheel_odom"
+    assert model_pose_odom is not None
+    assert model_pose_odom.findtext("odom_topic") == "/odom"
+    assert model_pose_odom.findtext("odom_frame") == "odom"
+    assert model_pose_odom.findtext("robot_base_frame") == "base_link"
+    assert model_pose_odom.findtext("dimensions") == "2"
+
+
+def test_collision_aware_odom_uses_the_map_origin_without_a_second_spawn_offset():
+    root = Path(__file__).parents[1]
+    launch_source = (root / "launch" / "spatial_experiment.launch.py").read_text(encoding="utf-8")
+    runner_source = (root / "terralift" / "spatial_trial_runner.py").read_text(encoding="utf-8")
+    assert 'map_to_odom_x", default_value="0.0"' in launch_source
+    assert 'map_to_odom_y", default_value="0.0"' in launch_source
+    assert "Pose2D(message.pose.pose.position.x, message.pose.pose.position.y, yaw)" in runner_source
+    assert "message.pose.pose.position.x + self.scenario.robot_start.x" not in runner_source
+
+
 def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):
     """Catch a resized map/scenario drifting out of sync with Gazebo geometry."""
     root = Path(__file__).parents[1]
@@ -284,7 +308,10 @@ def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):
     blocker = ET.parse(root / "models" / "passage_blocker" / "model.sdf")
     barrier_width = float(blocker.findtext(".//collision/geometry/box/size").split()[1])
     for left, right, bottom, top in regions[5:]:
-        assert barrier_width > min(right - left, top - bottom)
+        # It must be wider than the physical robot's padded 1.02 m footprint,
+        # yet fit entirely inside each 2.4 m corridor rather than intersecting
+        # the permanent side walls.
+        assert 1.02 < barrier_width < min(right - left, top - bottom)
 
 
 def test_each_declared_passage_has_a_direct_wall_free_static_map_route(tmp_path: Path):

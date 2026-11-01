@@ -138,18 +138,16 @@ class SpatialTrialRunner(Node):
         self._clock_ready.set()
 
     def _odom_cb(self, message: Odometry) -> None:
-        # Gazebo's diff-drive odometry is relative to its spawn point.  Keep
-        # experiment evidence and trajectories in the scenario/map frame.
+        # The Gazebo OdometryPublisher supplies the collision-aware model pose
+        # directly in this world's map coordinates.  Do not add the spawn
+        # point here: that was needed only for the former wheel encoder pose
+        # and would shift both evidence and trajectories a second time.
         orientation = message.pose.pose.orientation
         yaw = math.atan2(
             2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
             1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z),
         )
-        pose = Pose2D(
-            message.pose.pose.position.x + self.scenario.robot_start.x,
-            message.pose.pose.position.y + self.scenario.robot_start.y,
-            yaw,
-        )
+        pose = Pose2D(message.pose.pose.position.x, message.pose.pose.position.y, yaw)
         if self._last_pose is not None:
             self._travel_distance += math.hypot(pose.x - self._last_pose.x, pose.y - self._last_pose.y)
         self._last_pose = pose

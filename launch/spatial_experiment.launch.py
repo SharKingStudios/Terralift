@@ -24,8 +24,11 @@ def generate_launch_description() -> LaunchDescription:
     scenario_path = DeclareLaunchArgument("scenario_path", default_value=scenario)
     map_yaml = DeclareLaunchArgument("map_yaml", description="Generated static map YAML")
     rviz = DeclareLaunchArgument("rviz", default_value="true", description="Open the RViz sensor/map view")
-    map_to_odom_x = DeclareLaunchArgument("map_to_odom_x", default_value="-15.0")
-    map_to_odom_y = DeclareLaunchArgument("map_to_odom_y", default_value="-10.0")
+    # The Gazebo OdometryPublisher reports collision-aware world coordinates,
+    # which share the static map origin.  Keep this identity transform rather
+    # than applying the old spawn-relative encoder-odometry offset.
+    map_to_odom_x = DeclareLaunchArgument("map_to_odom_x", default_value="0.0")
+    map_to_odom_y = DeclareLaunchArgument("map_to_odom_y", default_value="0.0")
     model = DeclareLaunchArgument("model", default_value="")
     prompt_condition = DeclareLaunchArgument("prompt_condition", default_value="neutral")
     trial_seed = DeclareLaunchArgument("trial_seed", default_value="")

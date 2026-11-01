@@ -17,8 +17,10 @@ class OdomToTF(Node):
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
-        self.declare_parameter("map_to_odom_x", -15.0)
-        self.declare_parameter("map_to_odom_y", -10.0)
+        # Model-pose odometry is expressed in Gazebo world coordinates, which
+        # are also the static map coordinates for this experiment.
+        self.declare_parameter("map_to_odom_x", 0.0)
+        self.declare_parameter("map_to_odom_y", 0.0)
         self.broadcaster = TransformBroadcaster(self)
         self.static_broadcaster = StaticTransformBroadcaster(self)
         map_to_odom = TransformStamped()
