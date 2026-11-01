@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import rclpy
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
@@ -94,6 +94,11 @@ class SpatialTrialRunner(Node):
         self.observer = ProximityObservationAdapter(self.scenario)
         self.bag = RosbagRecorder(self.data)
         self.event_pub = self.create_publisher(String, "/spatial_experiment/events", 20)
+        # This is an emergency brake, not a second navigation controller.  It
+        # is used only after cancelling a goal whose *local* LiDAR clearance
+        # violated the safety buffer.  Nav2 otherwise remains the exclusive
+        # source of motion commands.
+        self.safety_stop_pub = self.create_publisher(Twist, "/cmd_vel", 20)
         self.nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self.create_subscription(Clock, "/clock", self._clock_cb, 20)
         self.create_subscription(Odometry, "/odom", self._odom_cb, 30)
@@ -475,7 +480,7 @@ class SpatialTrialRunner(Node):
                     last_progress_pose, last_progress_at = self._last_pose, now
             live_obstacle_range = self.observer.range_toward(pose)
             if live_obstacle_range is not None and live_obstacle_range <= NAVIGATION_SAFETY_RANGE_M:
-                handle.cancel_goal_async()
+                self._cancel_and_brake(handle)
                 return self._navigation_failure(
                     record, "navigation_blocked_by_local_obstacle",
                     nearest_lidar_range_m=live_obstacle_range,
@@ -484,7 +489,7 @@ class SpatialTrialRunner(Node):
             if (live_obstacle_range is not None
                     and live_obstacle_range <= self.observer.blocked_distance_m
                     and now - last_progress_at >= 2.0):
-                handle.cancel_goal_async()
+                self._cancel_and_brake(handle)
                 return self._navigation_failure(
                     record, "navigation_blocked_by_local_obstacle",
                     nearest_lidar_range_m=live_obstacle_range,
@@ -492,7 +497,7 @@ class SpatialTrialRunner(Node):
                 )
             time.sleep(0.05)
         if not result_future.done():
-            handle.cancel_goal_async()
+            self._cancel_and_brake(handle)
             return self._navigation_failure(record, "navigation_timeout")
         result = result_future.result()
         success = result.status == GoalStatus.STATUS_SUCCEEDED
@@ -505,6 +510,22 @@ class SpatialTrialRunner(Node):
         self.data.append("navigation/goals.jsonl", {"event": "result", **outcome})
         self._publish_event("navigation_result", **outcome)
         return outcome
+
+    def _cancel_and_brake(self, handle: Any) -> None:
+        """Cancel a Nav2 goal and actively clear any in-flight velocity.
+
+        Action cancellation is asynchronous.  Without the zero commands,
+        Gazebo can receive one or more stale forward `/cmd_vel` messages after
+        the LiDAR guard fires, letting the chassis coast into the obstacle the
+        guard was meant to avoid.  The short zero burst is logged and applies
+        to every guarded cancellation, independent of scenario or prompt.
+        """
+        handle.cancel_goal_async()
+        stop = Twist()
+        for _ in range(6):
+            self.safety_stop_pub.publish(stop)
+            time.sleep(0.03)
+        self._publish_event("navigation_safety_brake", duration_sec=0.18)
 
     def _navigation_failure(self, record: Dict[str, Any], reason: str, **details: Any) -> Dict[str, Any]:
         """Persist a transparent, agent-visible navigation failure result."""

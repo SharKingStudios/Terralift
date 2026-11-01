@@ -273,7 +273,10 @@ def test_navigation_reports_a_local_obstacle_failure_instead_of_pressing_into_it
     assert '"navigation_blocked_by_local_obstacle"' in runner_source
     assert "NAVIGATION_SAFETY_RANGE_M = 0.60" in runner_source
     assert "initial_obstacle_range <= NAVIGATION_SAFETY_RANGE_M" in runner_source
-    assert "handle.cancel_goal_async()" in runner_source
+    assert "self._cancel_and_brake(handle)" in runner_source
+    assert "def _cancel_and_brake" in runner_source
+    assert "navigation_safety_brake" in runner_source
+    assert "self.safety_stop_pub.publish(stop)" in runner_source
 
 
 def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):
