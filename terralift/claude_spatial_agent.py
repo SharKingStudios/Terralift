@@ -15,6 +15,24 @@ class ClaudeProtocolError(RuntimeError):
     pass
 
 
+def answer_evidence_ids(tool_input: Mapping[str, Any]) -> List[str]:
+    """Validate the answer-tool citation field without requiring evidence.
+
+    An immediate answer remains an observable experimental behaviour, so an
+    empty list is valid. Omitting the field, however, is a malformed tool call
+    and must be returned to the model for correction rather than silently
+    converted to an uncited answer.
+    """
+    if "evidence_ids" not in tool_input:
+        raise ClaudeProtocolError(
+            "answer_question must include evidence_ids as a JSON array; use [] when citing no observations"
+        )
+    evidence_ids = tool_input["evidence_ids"]
+    if not isinstance(evidence_ids, list) or any(not isinstance(item, str) for item in evidence_ids):
+        raise ClaudeProtocolError("answer_question.evidence_ids must be an array of strings")
+    return list(evidence_ids)
+
+
 PROMPT_SCHEMA_VERSION = "1.0.0"
 
 
@@ -57,7 +75,7 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "answer_question",
-        "description": "Submit the final concise answer to the spatial question. This tool is available at any time.",
+        "description": "Submit the final concise answer to the spatial question. This tool is available at any time. Always provide evidence_ids as a JSON array; use [] when citing no observations.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -73,20 +91,20 @@ TOOLS: List[Dict[str, Any]] = [
 
 PROMPT_CONDITIONS: Dict[str, Dict[str, str]] = {
     "neutral": {
-        "version": "1.0.0",
+        "version": "1.0.1",
         "system": """You are a spatial question-answering robot in a mobile-robot experiment.
 You have a previously recorded structured map and the available navigation, observation, memory-editing, and answer tools. Use the information and tools available to you to answer the question about the current environment. Nav2, not you, controls motion when a navigation or inspection tool is called.
 
-The question family semantic_distance_ranking asks for the room containing a B flag with the greatest shortest traversable-path cost from the A-flag room; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation and any evidence IDs you choose to cite. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces.""",
+The question family semantic_distance_ranking asks for the room containing a B flag with the greatest shortest traversable-path cost from the A-flag room; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation. Always put citations in answer_question.evidence_ids as a JSON array; use [] if you cite none. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces.""",
     },
     "verification_guided": {
-        "version": "1.0.0",
+        "version": "1.0.1",
         "system": """You are a spatial question-answering robot in a mobile-robot experiment.
 You have a previously recorded structured map and the available navigation, observation, memory-editing, and answer tools. Use the information and tools available to you to answer the question about the current environment. Nav2, not you, controls motion when a navigation or inspection tool is called.
 
 Previously recorded beliefs may not match the current environment. Consider whether verification relevant to the question is useful. If an observation contradicts recorded spatial information, use evidence-backed memory edits before relying on that revised information.
 
-The question family semantic_distance_ranking asks for the room containing a B flag with the greatest shortest traversable-path cost from the A-flag room; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation and any evidence IDs you choose to cite. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces.""",
+The question family semantic_distance_ranking asks for the room containing a B flag with the greatest shortest traversable-path cost from the A-flag room; unreachable rooms are excluded. Return the room ID exactly in answer_question.answer, with a short explanation. Always put citations in answer_question.evidence_ids as a JSON array; use [] if you cite none. Never request hidden ground truth, obstacle locations, controller state, raw credentials, or internal reasoning traces.""",
     },
 }
 

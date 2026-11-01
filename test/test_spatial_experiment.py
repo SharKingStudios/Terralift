@@ -8,7 +8,7 @@ from collections import deque
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from terralift.claude_spatial_agent import ClaudeProtocolError, PROMPT_CONDITIONS, parse_tool_blocks, prompt_condition, prompt_hash
+from terralift.claude_spatial_agent import ClaudeProtocolError, PROMPT_CONDITIONS, answer_evidence_ids, parse_tool_blocks, prompt_condition, prompt_hash
 from terralift.spatial_data import TrialData
 from terralift.spatial_evaluator import evaluate_trial
 from terralift.spatial_memory import MemoryJournal, SpatialMemory
@@ -99,6 +99,18 @@ def test_tool_call_parser_rejects_unknown_tools():
         pass
     else:
         raise AssertionError("Unknown tool was accepted")
+
+
+def test_final_answer_requires_a_structured_evidence_array_but_allows_empty_citations():
+    assert answer_evidence_ids({"evidence_ids": []}) == []
+    assert answer_evidence_ids({"evidence_ids": ["observation_001"]}) == ["observation_001"]
+    for malformed in ({}, {"evidence_ids": "observation_001"}, {"evidence_ids": [1]}):
+        try:
+            answer_evidence_ids(malformed)
+        except ClaudeProtocolError:
+            pass
+        else:
+            raise AssertionError(f"Malformed final-answer citations were accepted: {malformed!r}")
 
 
 def test_trial_directory_isolated_and_partial_data_survives(tmp_path: Path):

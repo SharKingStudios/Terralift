@@ -26,6 +26,7 @@ from .claude_spatial_agent import (
     ClaudeAgent,
     ClaudeProtocolError,
     MockClaudeAgent,
+    answer_evidence_ids,
     prompt_condition,
     prompt_hash,
     parse_tool_blocks,
@@ -304,7 +305,13 @@ class SpatialTrialRunner(Node):
             messages.append({"role": "assistant", "content": blocks})
             tool_results = []
             for call in calls:
-                result = self._execute_tool(call)
+                try:
+                    result = self._execute_tool(call)
+                except ClaudeProtocolError as exc:
+                    # A malformed tool call is returned to Claude as a normal
+                    # tool result. This keeps an uncited / malformed answer
+                    # measurable without accepting or silently repairing it.
+                    result = {"accepted": False, "error": {"code": "invalid_tool_input", "message": str(exc)}}
                 tool_results.append({"type": "tool_result", "tool_use_id": call["id"], "content": json.dumps(result, sort_keys=True)})
                 self.data.append("ai/tool_results.jsonl", {"tool_call": call, "result": result})
                 self.transcript.line("TOOL RESULT", json.dumps(result, sort_keys=True), tool=call["name"])
@@ -351,7 +358,7 @@ class SpatialTrialRunner(Node):
         if name == "update_memory":
             return self._update_memory(tool_input)
         if name == "answer_question":
-            evidence_ids = [str(item) for item in tool_input.get("evidence_ids", [])]
+            evidence_ids = answer_evidence_ids(tool_input)
             if any(item not in self.memory.evidence for item in evidence_ids):
                 raise ClaudeProtocolError("Final answer cited unknown evidence")
             self._final_answer = {"answer": str(tool_input["answer"]), "reason": str(tool_input["reason"]),
