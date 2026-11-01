@@ -223,6 +223,20 @@ def test_robot_wheel_axes_match_the_rolled_wheel_link_frame():
     assert all(axis is not None and axis.text.strip() == "0 0 -1" for axis in axes)
 
 
+def test_lidar_stays_behind_the_chassis_collision_front_at_barrier_contact():
+    root = ET.parse(Path(__file__).parents[1] / "models" / "terralift_mecanum" / "model.sdf").getroot()
+    chassis_size = list(map(float, root.findtext("./model/link[@name='base_link']/collision/geometry/box/size").split()))
+    scanner_pose = list(map(float, root.findtext("./model/link[@name='base_link']/sensor[@name='scan_sensor']/pose").split()))
+    # The collision front is x=+0.45 m. A scanner at +0.30 m cannot be
+    # embedded in a wall at the first chassis contact.
+    assert scanner_pose[0] == 0.30
+    assert scanner_pose[0] < chassis_size[0] / 2
+    launch_source = (Path(__file__).parents[1] / "launch" / "spatial_experiment.launch.py").read_text(encoding="utf-8")
+    observer_source = (Path(__file__).parents[1] / "terralift" / "spatial_observer.py").read_text(encoding="utf-8")
+    assert 'arguments=["0.30", "0", "0.60"' in launch_source
+    assert "scanner_forward_offset_m: float = 0.30" in observer_source
+
+
 def test_navigation_odom_uses_collision_aware_model_pose_not_wheel_encoder():
     """A stalled physical robot must never advance in RViz/Nav2 odometry."""
     root = ET.parse(Path(__file__).parents[1] / "models" / "terralift_mecanum" / "model.sdf").getroot()
@@ -245,6 +259,12 @@ def test_collision_aware_odom_uses_the_map_origin_without_a_second_spawn_offset(
     assert 'map_to_odom_y", default_value="0.0"' in launch_source
     assert "Pose2D(message.pose.pose.position.x, message.pose.pose.position.y, yaw)" in runner_source
     assert "message.pose.pose.position.x + self.scenario.robot_start.x" not in runner_source
+
+
+def test_physical_tool_calls_are_serialized_for_observation_conditioned_replanning():
+    runner_source = (Path(__file__).parents[1] / "terralift" / "spatial_trial_runner.py").read_text(encoding="utf-8")
+    assert 'PHYSICAL_ACTION_TOOLS = {"navigate_to", "inspect_passage", "inspect_location"}' in runner_source
+    assert '"code": "physical_action_deferred"' in runner_source
 
 
 def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):

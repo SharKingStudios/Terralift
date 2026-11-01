@@ -32,7 +32,7 @@ class ProximityObservationAdapter:
     # intended scan heading. Otherwise a narrow door cone can intersect a side
     # wall and create a false blockage.
     def __init__(self, scenario: Scenario, inspection_tolerance_m: float = 1.5,
-                 inspection_yaw_tolerance_rad: float = 0.20, scanner_forward_offset_m: float = 0.55,
+                 inspection_yaw_tolerance_rad: float = 0.20, scanner_forward_offset_m: float = 0.30,
                  blocked_distance_m: float = 2.0, marker_range_m: float = 2.5,
                  passage_scan_half_angle_rad: float = 0.22) -> None:
         self.scenario = scenario

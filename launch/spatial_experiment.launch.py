@@ -81,7 +81,7 @@ def generate_launch_description() -> LaunchDescription:
         package="tf2_ros", executable="static_transform_publisher", name="spatial_scan_mount",
         # ros_gz_bridge normalizes Gazebo's scoped ``::`` names to slashes
         # in the ROS LaserScan header.
-        arguments=["0.55", "0", "0.60", "0", "0", "0", "base_link", "terralift_mecanum/base_link/scan_sensor"],
+        arguments=["0.30", "0", "0.60", "0", "0", "0", "base_link", "terralift_mecanum/base_link/scan_sensor"],
     )
     # Jazzy's stock navigation_launch also starts route, docking, and collision
     # monitor nodes. The experiment needs only NavigateToPose and uses Gazebo

@@ -10,11 +10,14 @@
       <visual name="orange_lift_cover"><geometry><box><size>0.42 0.42 0.16</size></box></geometry><pose>0.12 0 0.38 0 0 0</pose><material><diffuse>0.95 0.31 0.03 1</diffuse></material></visual>
       <!-- Place the scanner clear of the chassis collision so it observes
            the environment instead of immediately marking the robot occupied. -->
-      <visual name="lidar"><geometry><cylinder><radius>0.10</radius><length>0.08</length></cylinder></geometry><pose>0.55 0 0.60 0 0 0</pose><material><diffuse>0.08 0.08 0.08 1</diffuse></material></visual>
+      <visual name="lidar"><geometry><cylinder><radius>0.10</radius><length>0.08</length></cylinder></geometry><pose>0.30 0 0.60 0 0 0</pose><material><diffuse>0.08 0.08 0.08 1</diffuse></material></visual>
       <!-- Entity names share a link-level namespace in Gazebo, so this must
            not reuse the decorative visual's `lidar` name. -->
       <sensor name="scan_sensor" type="gpu_lidar">
-        <pose>0.55 0 0.60 0 0 0</pose><always_on>1</always_on><update_rate>12</update_rate><topic>/scan</topic><visualize>false</visualize>
+        <!-- Keep the scanner inside the chassis collision envelope.  At a
+             frontal contact it remains outside the barrier and continues to
+             provide an obstacle return instead of becoming embedded in it. -->
+        <pose>0.30 0 0.60 0 0 0</pose><always_on>1</always_on><update_rate>12</update_rate><topic>/scan</topic><visualize>false</visualize>
         <lidar><scan><horizontal><samples>720</samples><resolution>1</resolution><min_angle>-3.14159</min_angle><max_angle>3.14159</max_angle></horizontal></scan><range><min>0.12</min><max>12</max><resolution>0.02</resolution></range></lidar>
       </sensor>
     </link>

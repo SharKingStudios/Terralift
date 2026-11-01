@@ -46,6 +46,11 @@ RECORD_TOPICS = [
     "/spatial_experiment/events",
 ]
 
+# Gazebo navigation and sensing are sequential physical interactions.  A
+# second motion request cannot honestly be selected using the outcome of the
+# first until that outcome has been returned to the model.
+PHYSICAL_ACTION_TOOLS = {"navigate_to", "inspect_passage", "inspect_location"}
+
 
 class SpatialTrialRunner(Node):
     def __init__(self) -> None:
@@ -302,14 +307,30 @@ class SpatialTrialRunner(Node):
                 raise ClaudeProtocolError("Claude ended a turn without an allowed tool call")
             messages.append({"role": "assistant", "content": blocks})
             tool_results = []
+            physical_action_executed = False
             for call in calls:
-                try:
-                    result = self._execute_tool(call)
-                except ClaudeProtocolError as exc:
-                    # A malformed tool call is returned to Claude as a normal
-                    # tool result. This keeps an uncited / malformed answer
-                    # measurable without accepting or silently repairing it.
-                    result = {"accepted": False, "error": {"code": "invalid_tool_input", "message": str(exc)}}
+                if call["name"] in PHYSICAL_ACTION_TOOLS and physical_action_executed:
+                    # Preserve the request and its refusal in the transcript;
+                    # do not silently substitute a route or revise memory.
+                    # Claude must choose whether to issue it again after it
+                    # sees the preceding real-world observation.
+                    result = {
+                        "accepted": False,
+                        "error": {
+                            "code": "physical_action_deferred",
+                            "message": "Only one navigation or observation action can run per turn. Review the preceding result and reissue this action if still relevant.",
+                        },
+                    }
+                else:
+                    try:
+                        result = self._execute_tool(call)
+                    except ClaudeProtocolError as exc:
+                        # A malformed tool call is returned to Claude as a normal
+                        # tool result. This keeps an uncited / malformed answer
+                        # measurable without accepting or silently repairing it.
+                        result = {"accepted": False, "error": {"code": "invalid_tool_input", "message": str(exc)}}
+                    if call["name"] in PHYSICAL_ACTION_TOOLS:
+                        physical_action_executed = True
                 tool_results.append({"type": "tool_result", "tool_use_id": call["id"], "content": json.dumps(result, sort_keys=True)})
                 self.data.append("ai/tool_results.jsonl", {"tool_call": call, "result": result})
                 self.transcript.line("TOOL RESULT", json.dumps(result, sort_keys=True), tool=call["name"])
