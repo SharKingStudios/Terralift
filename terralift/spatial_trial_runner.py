@@ -471,13 +471,7 @@ class SpatialTrialRunner(Node):
             self._counters["navigation_failures"] += 1
             return {"success": False, "reason": "goal_rejected", **record}
         result_future = handle.get_result_async()
-        last_progress_pose = self._last_pose
-        last_progress_at = time.monotonic()
         while not result_future.done() and time.monotonic() < deadline:
-            now = time.monotonic()
-            if self._last_pose is not None and last_progress_pose is not None:
-                if math.hypot(self._last_pose.x - last_progress_pose.x, self._last_pose.y - last_progress_pose.y) >= 0.10:
-                    last_progress_pose, last_progress_at = self._last_pose, now
             live_obstacle_range = self.observer.range_toward(pose)
             if live_obstacle_range is not None and live_obstacle_range <= NAVIGATION_SAFETY_RANGE_M:
                 self._cancel_and_brake(handle)
@@ -485,15 +479,6 @@ class SpatialTrialRunner(Node):
                     record, "navigation_blocked_by_local_obstacle",
                     nearest_lidar_range_m=live_obstacle_range,
                     safety_range_m=NAVIGATION_SAFETY_RANGE_M,
-                )
-            if (live_obstacle_range is not None
-                    and live_obstacle_range <= self.observer.blocked_distance_m
-                    and now - last_progress_at >= 2.0):
-                self._cancel_and_brake(handle)
-                return self._navigation_failure(
-                    record, "navigation_blocked_by_local_obstacle",
-                    nearest_lidar_range_m=live_obstacle_range,
-                    stalled_sec=now - last_progress_at,
                 )
             time.sleep(0.05)
         if not result_future.done():

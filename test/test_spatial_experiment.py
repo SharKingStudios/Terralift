@@ -277,6 +277,9 @@ def test_navigation_reports_a_local_obstacle_failure_instead_of_pressing_into_it
     assert "def _cancel_and_brake" in runner_source
     assert "navigation_safety_brake" in runner_source
     assert "self.safety_stop_pub.publish(stop)" in runner_source
+    # Reaching a goal position can require an in-place final rotation.  That
+    # ordinary zero-translation phase must not be mislabeled as an obstacle.
+    assert '"stalled_sec"' not in runner_source
 
 
 def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):
