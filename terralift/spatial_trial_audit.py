@@ -65,7 +65,20 @@ def audit_trial(run_directory: str | Path) -> Dict[str, Any]:
     requested_update_count = sum(
         len(item.get("tool_call", {}).get("input", {}).get("updates", [])) for item in update_calls
     )
-    passage_sensor_records = [item for item in observations if item.get("kind") == "passage"]
+    # ``inspect_passage`` also records an explicit ``unobserved`` result when
+    # Nav2 cannot safely reach the inspection pose.  That is an important
+    # navigation outcome, but it is not a sensor observation.  Do not let a
+    # correctly reported safety failure make the local-LiDAR audit fail.
+    passage_sensor_records = [
+        item for item in observations
+        if item.get("kind") == "passage" and item.get("observed_status") in {"open", "blocked"}
+    ]
+    passage_navigation_failure_records = [
+        item for item in observations
+        if item.get("kind") == "passage"
+        and item.get("observed_status") == "unobserved"
+        and not item.get("navigation", {}).get("success", True)
+    ]
     semantic_sensor_records = [item for item in observations if item.get("kind") == "location"]
     passage_local = all(
         item.get("source") == "nearby_lidar" and "robot_pose" in item and "nearest_lidar_range_m" in item
@@ -92,6 +105,7 @@ def audit_trial(run_directory: str | Path) -> Dict[str, Any]:
         "artifacts_preserved_without_navigation": immediate_answer and (root / "memory" / "final_memory.json").is_file(),
         "passage_sensor_records": len(passage_sensor_records),
         "passage_sensor_records_are_local_lidar": passage_local,
+        "passage_navigation_failure_records": len(passage_navigation_failure_records),
         "semantic_sensor_records": len(semantic_sensor_records),
         "semantic_sensor_records_are_local_range_gated": semantic_local,
         "scientific_caveats": [

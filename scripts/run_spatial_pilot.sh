@@ -40,14 +40,34 @@ declare -a PILOT_CASES=(
   "semantic_answer_invariant_move_b_e_to_b:pilot-semantic-invariant-v1"
 )
 declare -a CONDITIONS=(neutral verification_guided)
+TOTAL_TRIALS=$(( ${#PILOT_CASES[@]} * ${#CONDITIONS[@]} ))
+TRIAL_INDEX=0
+COMPLETED_TRIALS=0
+BATCH_STARTED_SECONDS=$SECONDS
+# Used only before the first measured trial completes.  Later estimates use
+# the actual mean wall-clock duration observed in this batch.
+INITIAL_TRIAL_ESTIMATE_SECONDS=240
 
 for case_item in "${PILOT_CASES[@]}"; do
   scenario="${case_item%%:*}"
   seed="${case_item#*:}"
   for condition in "${CONDITIONS[@]}"; do
-    echo "=== pilot scenario=$scenario seed=$seed condition=$condition ==="
+    TRIAL_INDEX=$((TRIAL_INDEX + 1))
+    elapsed_seconds=$((SECONDS - BATCH_STARTED_SECONDS))
+    if (( COMPLETED_TRIALS > 0 )); then
+      mean_trial_seconds=$((elapsed_seconds / COMPLETED_TRIALS))
+    else
+      mean_trial_seconds=$INITIAL_TRIAL_ESTIMATE_SECONDS
+    fi
+    remaining_trials=$((TOTAL_TRIALS - TRIAL_INDEX + 1))
+    estimated_remaining_seconds=$((mean_trial_seconds * remaining_trials))
+    echo "=== pilot trial $TRIAL_INDEX/$TOTAL_TRIALS scenario=$scenario seed=$seed condition=$condition ==="
+    SPATIAL_BATCH_INDEX="$TRIAL_INDEX" \
+    SPATIAL_BATCH_TOTAL="$TOTAL_TRIALS" \
+    SPATIAL_BATCH_ETA_SECONDS="$estimated_remaining_seconds" \
     "$ROOT/scripts/run_spatial_trial.sh" --scenario "$scenario" --seed "$seed" \
       --prompt-condition "$condition" --model "$MODEL" --results-dir "$RESULTS_DIR" --close "${VISUAL_ARGS[@]}"
+    COMPLETED_TRIALS=$((COMPLETED_TRIALS + 1))
   done
 done
 

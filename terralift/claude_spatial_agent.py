@@ -145,6 +145,34 @@ def _serialise(value: Any) -> Any:
     return value
 
 
+def _terminal_prompt_summary(messages: List[Dict[str, Any]], request_number: int) -> str:
+    """Render an operator-readable, non-secret summary of the API request.
+
+    Full prompts and responses remain durably saved in requests_responses.jsonl.
+    The terminal deliberately shows only task/map counts and the latest tool
+    outcome, so a GUI or headless batch can be followed without dumping the
+    growing conversation context on every request.
+    """
+    latest = messages[-1].get("content") if messages else None
+    if request_number == 1 and isinstance(latest, str):
+        try:
+            initial = json.loads(latest)
+            memory = initial.get("spatial_memory", {})
+            question = initial.get("question", {}).get("text", "unknown question")
+            return (
+                f"request=1 initial task; question={question!r}; "
+                f"recorded rooms={len(memory.get('rooms', {}))}; "
+                f"passages={len(memory.get('passages', {}))}; "
+                "tools=navigate, inspect, update-memory, answer"
+            )
+        except (TypeError, ValueError):
+            return "request=1 initial task (structured prompt saved to ai/requests_responses.jsonl)"
+    if isinstance(latest, list):
+        tool_results = [item for item in latest if isinstance(item, Mapping) and item.get("type") == "tool_result"]
+        return f"request={request_number} follow-up with {len(tool_results)} tool result(s)"
+    return f"request={request_number} follow-up prompt"
+
+
 def parse_tool_blocks(content: Iterable[Any]) -> List[Dict[str, Any]]:
     """Return strictly validated tool calls from API-visible response blocks."""
     calls: List[Dict[str, Any]] = []
@@ -187,6 +215,7 @@ class ClaudeAgent:
     def next(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         request_number = self.usage["api_calls"] + 1
         request = {"request_number": request_number, "model": self.model, "max_tokens": self.max_tokens, "system": self.system_prompt, "tools": self.tools, "messages": messages}
+        self.transcript.line("AI PROMPT", _terminal_prompt_summary(messages, request_number), request_number=request_number)
         start = time.monotonic()
         started_at = datetime.now(timezone.utc).isoformat()
         response = None

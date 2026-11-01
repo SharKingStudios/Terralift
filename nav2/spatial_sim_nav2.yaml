@@ -38,13 +38,15 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: false
-      min_vel_x: -0.4
-      max_vel_x: 1.2
+      # Forward and reverse are symmetric.  The requested 2x speed increase
+      # is paired with the runner's speed-scaled LiDAR safety range.
+      min_vel_x: -2.4
+      max_vel_x: 2.4
       max_vel_theta: 1.4
       min_speed_xy: 0.0
-      max_speed_xy: 1.2
-      acc_lim_x: 1.2
-      decel_lim_x: -2.4
+      max_speed_xy: 2.4
+      acc_lim_x: 2.4
+      decel_lim_x: -4.8
       acc_lim_theta: 2.5
       decel_lim_theta: -2.5
       vx_samples: 25
@@ -100,10 +102,10 @@ velocity_smoother:
     use_sim_time: true
     smoothing_frequency: 30.0
     feedback: OPEN_LOOP
-    max_velocity: [1.2, 0.0, 1.4]
-    min_velocity: [-0.4, 0.0, -1.4]
-    max_accel: [1.2, 0.0, 2.5]
-    max_decel: [-2.4, 0.0, -2.5]
+    max_velocity: [2.4, 0.0, 1.4]
+    min_velocity: [-2.4, 0.0, -1.4]
+    max_accel: [2.4, 0.0, 2.5]
+    max_decel: [-4.8, 0.0, -2.5]
     odom_topic: /odom
 
 local_costmap:
@@ -131,6 +133,12 @@ local_costmap:
           data_type: "LaserScan"
           clearing: true
           marking: true
+          sensor_frame: terralift_mecanum/base_link/scan_sensor
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.0
+          inf_is_valid: true
+          obstacle_min_range: 0.0
+          raytrace_min_range: 0.0
           obstacle_max_range: 8.0
           raytrace_max_range: 10.0
       inflation_layer:
@@ -163,6 +171,12 @@ global_costmap:
           data_type: "LaserScan"
           clearing: true
           marking: true
+          sensor_frame: terralift_mecanum/base_link/scan_sensor
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.0
+          inf_is_valid: true
+          obstacle_min_range: 0.0
+          raytrace_min_range: 0.0
           obstacle_max_range: 10.0
           raytrace_max_range: 12.0
       inflation_layer:

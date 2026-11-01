@@ -13,6 +13,25 @@ MOCK=false
 MOCK_STRATEGY="answer_flip"
 AUTO_CLOSE=false
 RESULTS_DIR="${TERRALIFT_RESULTS_DIR:-}"
+# The pilot runner supplies these variables.  Sensible defaults keep a direct
+# single-trial invocation readable in either a GUI or headless terminal.
+BATCH_INDEX="${SPATIAL_BATCH_INDEX:-1}"
+BATCH_TOTAL="${SPATIAL_BATCH_TOTAL:-1}"
+BATCH_ETA_SECONDS="${SPATIAL_BATCH_ETA_SECONDS:-0}"
+
+format_duration() {
+  local total_seconds="$1"
+  local hours=$((total_seconds / 3600))
+  local minutes=$(((total_seconds % 3600) / 60))
+  local seconds=$((total_seconds % 60))
+  if (( hours > 0 )); then
+    printf '%dh %02dm' "$hours" "$minutes"
+  elif (( minutes > 0 )); then
+    printf '%dm %02ds' "$minutes" "$seconds"
+  else
+    printf '%ds' "$seconds"
+  fi
+}
 
 usage() {
   cat <<'EOF'
@@ -84,6 +103,17 @@ else
   unset GZ_PARTITION
 fi
 echo "Spatial experiment isolation: ROS_DOMAIN_ID=$ROS_DOMAIN_ID, GZ_PARTITION=${GZ_PARTITION:-default}"
+echo "============================================================"
+echo "Spatial trial ${BATCH_INDEX} / ${BATCH_TOTAL}"
+echo "Scenario: ${SCENARIO} | prompt: ${PROMPT_CONDITION} | model: ${MODEL}"
+if (( BATCH_TOTAL > 1 )); then
+  echo "Estimated batch time remaining: $(format_duration "$BATCH_ETA_SECONDS")"
+else
+  echo "Estimated batch time remaining: standalone trial (no batch queue)"
+fi
+echo "Live simplified AI prompts and complete visible AI responses follow below."
+echo "Full API records: <trial>/ai/requests_responses.jsonl"
+echo "============================================================"
 for command in ros2 colcon gz python3; do
   command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done

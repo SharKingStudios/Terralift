@@ -50,10 +50,20 @@ RECORD_TOPICS = [
 # second motion request cannot honestly be selected using the outcome of the
 # first until that outcome has been returned to the model.
 PHYSICAL_ACTION_TOOLS = {"navigate_to", "inspect_passage", "inspect_location"}
-# A chassis-front collision occurs after the scanner gets very close to a
-# wall. This conservative local buffer stops the request before contact while
-# still permitting turns around ordinary nearby corridor walls.
-NAVIGATION_SAFETY_RANGE_M = 0.60
+# The LiDAR emergency brake is speed dependent: a fixed buffer large enough for
+# 2.4 m/s also cancels slow starts next to a wall Nav2 is about to route around
+# (e.g. leaving an inspection pose 1.5 m from a newly blocked passage).  The
+# stopping distance is chassis-front clearance + reaction latency + braking at
+# the configured 4.8 m/s^2 deceleration:
+#   0.2 m/s -> 0.53 m,  1.2 m/s -> 0.83 m,  2.4 m/s -> 1.46 m
+SAFETY_CLEARANCE_M = 0.50
+SAFETY_LATENCY_SEC = 0.15
+SAFETY_DECEL_MPS2 = 4.8
+
+
+def navigation_safety_range(speed_mps: float) -> float:
+    speed = abs(speed_mps)
+    return SAFETY_CLEARANCE_M + SAFETY_LATENCY_SEC * speed + speed * speed / (2.0 * SAFETY_DECEL_MPS2)
 
 
 class SpatialTrialRunner(Node):
@@ -103,6 +113,7 @@ class SpatialTrialRunner(Node):
         self.create_subscription(Clock, "/clock", self._clock_cb, 20)
         self.create_subscription(Odometry, "/odom", self._odom_cb, 30)
         self.create_subscription(LaserScan, "/scan", self._scan_cb, 20)
+        self.create_subscription(Twist, "/cmd_vel", self._cmd_vel_cb, 20)
         self._clock_ready = threading.Event()
         # A running /clock alone is insufficient: Gazebo can publish it before
         # discovery has connected the bridge to the robot's sensor streams.
@@ -114,6 +125,8 @@ class SpatialTrialRunner(Node):
         self._completed = threading.Event()
         self._sim_time: Optional[float] = None
         self._last_pose: Optional[Pose2D] = None
+        self._last_cmd_vel = Twist()
+        self._last_cmd_vel_at = 0.0
         self._travel_distance = 0.0
         self._trajectory: List[Dict[str, Any]] = []
         self._observations: List[Dict[str, Any]] = []
@@ -183,6 +196,11 @@ class SpatialTrialRunner(Node):
     def _scan_cb(self, message: LaserScan) -> None:
         self.observer.update_scan(ScanSnapshot(message.ranges, message.angle_min, message.angle_increment, message.range_min, message.range_max))
         self._scan_ready.set()
+
+    def _cmd_vel_cb(self, message: Twist) -> None:
+        """Keep Nav2's actual travel direction for the LiDAR safety guard."""
+        self._last_cmd_vel = message
+        self._last_cmd_vel_at = time.monotonic()
 
     def _publish_event(self, event: str, **payload: Any) -> None:
         payload = {"simulation_time": self._sim_time, **payload}
@@ -449,16 +467,6 @@ class SpatialTrialRunner(Node):
         self.data.append("navigation/goals.jsonl", {"event": "requested", **record})
         self._publish_event("navigation_requested", **record)
         self.transcript.line("NAV2", f"Navigating to {target_id} at ({pose.x:.2f}, {pose.y:.2f})")
-        # A high-level target can lie beyond a newly observed barrier while
-        # Nav2's global static map still contains the old passage. Refuse that
-        # unsafe direct request from the *local scan*, and return the failure
-        # to Claude instead of allowing the chassis to press into the wall.
-        initial_obstacle_range = self.observer.range_toward(pose)
-        if initial_obstacle_range is not None and initial_obstacle_range <= NAVIGATION_SAFETY_RANGE_M:
-            return self._navigation_failure(
-                record, "navigation_blocked_by_local_obstacle",
-                nearest_lidar_range_m=initial_obstacle_range,
-            )
         send = self.nav.send_goal_async(goal)
         deadline = time.monotonic() + float(self.get_parameter("action_timeout_sec").value)
         while not send.done() and time.monotonic() < deadline:
@@ -472,13 +480,19 @@ class SpatialTrialRunner(Node):
             return {"success": False, "reason": "goal_rejected", **record}
         result_future = handle.get_result_async()
         while not result_future.done() and time.monotonic() < deadline:
-            live_obstacle_range = self.observer.range_toward(pose)
-            if live_obstacle_range is not None and live_obstacle_range <= NAVIGATION_SAFETY_RANGE_M:
+            # Check clearance only in the direction Nav2 is physically
+            # commanding now. A final goal can lie behind a static wall that
+            # Nav2 correctly plans to turn around, and that wall is not an
+            # imminent collision hazard.
+            live_obstacle_range, commanded_speed = self._motion_obstacle_range()
+            safety_range = navigation_safety_range(commanded_speed or 0.0)
+            if live_obstacle_range is not None and live_obstacle_range <= safety_range:
                 self._cancel_and_brake(handle)
                 return self._navigation_failure(
                     record, "navigation_blocked_by_local_obstacle",
                     nearest_lidar_range_m=live_obstacle_range,
-                    safety_range_m=NAVIGATION_SAFETY_RANGE_M,
+                    safety_range_m=safety_range,
+                    commanded_linear_speed_mps=commanded_speed,
                 )
             time.sleep(0.05)
         if not result_future.done():
@@ -495,6 +509,27 @@ class SpatialTrialRunner(Node):
         self.data.append("navigation/goals.jsonl", {"event": "result", **outcome})
         self._publish_event("navigation_result", **outcome)
         return outcome
+
+    def _motion_obstacle_range(self) -> tuple[Optional[float], Optional[float]]:
+        """Return clearance along a fresh commanded forward or reverse motion.
+
+        The scanner has 360-degree coverage. Positive linear velocity checks
+        ahead of the base; negative velocity checks behind it. This protects
+        the doubled reverse speed while allowing Nav2 to route around walls
+        that happen to lie on the straight line to a distant goal.
+        """
+        if self.observer.pose is None or time.monotonic() - self._last_cmd_vel_at > 0.25:
+            return None, None
+        speed = float(self._last_cmd_vel.linear.x)
+        if abs(speed) < 0.02:
+            return None, speed
+        heading = self.observer.pose.yaw + (math.pi if speed < 0.0 else 0.0)
+        probe = Pose2D(
+            self.observer.pose.x + math.cos(heading),
+            self.observer.pose.y + math.sin(heading),
+            heading,
+        )
+        return self.observer.range_toward(probe), speed
 
     def _cancel_and_brake(self, handle: Any) -> None:
         """Cancel a Nav2 goal and actively clear any in-flight velocity.

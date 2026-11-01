@@ -8,12 +8,13 @@ from collections import deque
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from terralift.claude_spatial_agent import ClaudeProtocolError, PROMPT_CONDITIONS, answer_evidence_ids, parse_tool_blocks, prompt_condition, prompt_hash
+from terralift.claude_spatial_agent import ClaudeProtocolError, PROMPT_CONDITIONS, _terminal_prompt_summary, answer_evidence_ids, parse_tool_blocks, prompt_condition, prompt_hash
 from terralift.spatial_data import TrialData
 from terralift.spatial_evaluator import evaluate_trial
 from terralift.spatial_memory import MemoryJournal, SpatialMemory
 from terralift.spatial_models import default_scenario_path, load_scenario
 from terralift.spatial_observer import ProximityObservationAdapter, ScanSnapshot
+from terralift.spatial_trial_audit import audit_trial
 
 
 def scenario():
@@ -99,6 +100,37 @@ def test_tool_call_parser_rejects_unknown_tools():
         pass
     else:
         raise AssertionError("Unknown tool was accepted")
+
+
+def test_terminal_prompt_summary_is_operator_readable_without_dumping_memory():
+    initial = {
+        "question": {"text": "Which room is farthest?"},
+        "spatial_memory": {"rooms": {"A": {}, "B": {}}, "passages": {"A_B": {}}},
+    }
+    summary = _terminal_prompt_summary([{"content": json.dumps(initial)}], 1)
+    assert "Which room is farthest?" in summary
+    assert "recorded rooms=2" in summary
+    assert "passages=1" in summary
+    assert "spatial_memory" not in summary
+
+
+def test_audit_separates_navigation_failures_from_lidar_sensor_observations(tmp_path: Path):
+    (tmp_path / "ai").mkdir()
+    (tmp_path / "navigation").mkdir()
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "ai" / "prompt_context.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    observations = [
+        {"kind": "passage", "observed_status": "blocked", "source": "nearby_lidar", "robot_pose": {}, "nearest_lidar_range_m": 1.0},
+        {"kind": "passage", "observed_status": "unobserved", "source": "pose_guard", "navigation": {"success": False}},
+    ]
+    (tmp_path / "navigation" / "observations.jsonl").write_text(
+        "".join(json.dumps(item) + "\n" for item in observations), encoding="utf-8"
+    )
+    audit = audit_trial(tmp_path)
+    assert audit["passage_sensor_records"] == 1
+    assert audit["passage_sensor_records_are_local_lidar"] is True
+    assert audit["passage_navigation_failure_records"] == 1
 
 
 def test_final_answer_requires_a_structured_evidence_array_but_allows_empty_citations():
@@ -271,8 +303,11 @@ def test_physical_tool_calls_are_serialized_for_observation_conditioned_replanni
 def test_navigation_reports_a_local_obstacle_failure_instead_of_pressing_into_it():
     runner_source = (Path(__file__).parents[1] / "terralift" / "spatial_trial_runner.py").read_text(encoding="utf-8")
     assert '"navigation_blocked_by_local_obstacle"' in runner_source
-    assert "NAVIGATION_SAFETY_RANGE_M = 0.60" in runner_source
-    assert "initial_obstacle_range <= NAVIGATION_SAFETY_RANGE_M" in runner_source
+    assert "def navigation_safety_range" in runner_source
+    assert "self.create_subscription(Twist, \"/cmd_vel\", self._cmd_vel_cb, 20)" in runner_source
+    assert "live_obstacle_range, commanded_speed = self._motion_obstacle_range()" in runner_source
+    assert "def _motion_obstacle_range" in runner_source
+    assert "commanded_linear_speed_mps=commanded_speed" in runner_source
     assert "self._cancel_and_brake(handle)" in runner_source
     assert "def _cancel_and_brake" in runner_source
     assert "navigation_safety_brake" in runner_source
@@ -280,6 +315,28 @@ def test_navigation_reports_a_local_obstacle_failure_instead_of_pressing_into_it
     # Reaching a goal position can require an in-place final rotation.  That
     # ordinary zero-translation phase must not be mislabeled as an obstacle.
     assert '"stalled_sec"' not in runner_source
+
+
+def test_spatial_navigation_speed_is_doubled_with_symmetric_reverse_and_safety_buffer():
+    root = Path(__file__).parents[1]
+    nav_source = (root / "nav2" / "spatial_sim_nav2.yaml").read_text(encoding="utf-8")
+    runner_source = (root / "terralift" / "spatial_trial_runner.py").read_text(encoding="utf-8")
+    assert "min_vel_x: -2.4" in nav_source
+    assert "max_vel_x: 2.4" in nav_source
+    assert "max_speed_xy: 2.4" in nav_source
+    assert "max_velocity: [2.4, 0.0, 1.4]" in nav_source
+    assert "min_velocity: [-2.4, 0.0, -1.4]" in nav_source
+    assert "def navigation_safety_range" in runner_source
+
+
+def test_spatial_scripts_print_batch_progress_and_live_ai_output_locations():
+    root = Path(__file__).parents[1]
+    trial_script = (root / "scripts" / "run_spatial_trial.sh").read_text(encoding="utf-8")
+    pilot_script = (root / "scripts" / "run_spatial_pilot.sh").read_text(encoding="utf-8")
+    assert "Spatial trial ${BATCH_INDEX} / ${BATCH_TOTAL}" in trial_script
+    assert "Estimated batch time remaining" in trial_script
+    assert "Live simplified AI prompts and complete visible AI responses" in trial_script
+    assert "SPATIAL_BATCH_ETA_SECONDS" in pilot_script
 
 
 def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):
