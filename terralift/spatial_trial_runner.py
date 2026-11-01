@@ -50,6 +50,10 @@ RECORD_TOPICS = [
 # second motion request cannot honestly be selected using the outcome of the
 # first until that outcome has been returned to the model.
 PHYSICAL_ACTION_TOOLS = {"navigate_to", "inspect_passage", "inspect_location"}
+# A chassis-front collision occurs after the scanner gets very close to a
+# wall. This conservative local buffer stops the request before contact while
+# still permitting turns around ordinary nearby corridor walls.
+NAVIGATION_SAFETY_RANGE_M = 0.60
 
 
 class SpatialTrialRunner(Node):
@@ -63,10 +67,14 @@ class SpatialTrialRunner(Node):
         self.declare_parameter("mock", False)
         self.declare_parameter("mock_strategy", "answer_flip")
         self.declare_parameter("open_chat_terminal", True)
-        self.declare_parameter("max_api_calls", 8)
+        # Exploration after a genuine navigation failure can require several
+        # observe / revise / retry turns. Keep the hard cap, but make it large
+        # enough that a pilot records the model's decision rather than ending
+        # at an arbitrary short response budget.
+        self.declare_parameter("max_api_calls", 12)
         self.declare_parameter("max_output_tokens", 1200)
-        self.declare_parameter("max_total_input_tokens", 16000)
-        self.declare_parameter("max_total_output_tokens", 8000)
+        self.declare_parameter("max_total_input_tokens", 32000)
+        self.declare_parameter("max_total_output_tokens", 16000)
         self.declare_parameter("max_navigation_actions", 8)
         self.declare_parameter("action_timeout_sec", 100.0)
         self.declare_parameter("trial_timeout_sec", 600.0)
@@ -436,6 +444,16 @@ class SpatialTrialRunner(Node):
         self.data.append("navigation/goals.jsonl", {"event": "requested", **record})
         self._publish_event("navigation_requested", **record)
         self.transcript.line("NAV2", f"Navigating to {target_id} at ({pose.x:.2f}, {pose.y:.2f})")
+        # A high-level target can lie beyond a newly observed barrier while
+        # Nav2's global static map still contains the old passage. Refuse that
+        # unsafe direct request from the *local scan*, and return the failure
+        # to Claude instead of allowing the chassis to press into the wall.
+        initial_obstacle_range = self.observer.range_toward(pose)
+        if initial_obstacle_range is not None and initial_obstacle_range <= NAVIGATION_SAFETY_RANGE_M:
+            return self._navigation_failure(
+                record, "navigation_blocked_by_local_obstacle",
+                nearest_lidar_range_m=initial_obstacle_range,
+            )
         send = self.nav.send_goal_async(goal)
         deadline = time.monotonic() + float(self.get_parameter("action_timeout_sec").value)
         while not send.done() and time.monotonic() < deadline:
@@ -448,12 +466,34 @@ class SpatialTrialRunner(Node):
             self._counters["navigation_failures"] += 1
             return {"success": False, "reason": "goal_rejected", **record}
         result_future = handle.get_result_async()
+        last_progress_pose = self._last_pose
+        last_progress_at = time.monotonic()
         while not result_future.done() and time.monotonic() < deadline:
+            now = time.monotonic()
+            if self._last_pose is not None and last_progress_pose is not None:
+                if math.hypot(self._last_pose.x - last_progress_pose.x, self._last_pose.y - last_progress_pose.y) >= 0.10:
+                    last_progress_pose, last_progress_at = self._last_pose, now
+            live_obstacle_range = self.observer.range_toward(pose)
+            if live_obstacle_range is not None and live_obstacle_range <= NAVIGATION_SAFETY_RANGE_M:
+                handle.cancel_goal_async()
+                return self._navigation_failure(
+                    record, "navigation_blocked_by_local_obstacle",
+                    nearest_lidar_range_m=live_obstacle_range,
+                    safety_range_m=NAVIGATION_SAFETY_RANGE_M,
+                )
+            if (live_obstacle_range is not None
+                    and live_obstacle_range <= self.observer.blocked_distance_m
+                    and now - last_progress_at >= 2.0):
+                handle.cancel_goal_async()
+                return self._navigation_failure(
+                    record, "navigation_blocked_by_local_obstacle",
+                    nearest_lidar_range_m=live_obstacle_range,
+                    stalled_sec=now - last_progress_at,
+                )
             time.sleep(0.05)
         if not result_future.done():
             handle.cancel_goal_async()
-            self._counters["navigation_failures"] += 1
-            return {"success": False, "reason": "navigation_timeout", **record}
+            return self._navigation_failure(record, "navigation_timeout")
         result = result_future.result()
         success = result.status == GoalStatus.STATUS_SUCCEEDED
         outcome = {"success": success, "reason": "succeeded" if success else f"nav_status_{result.status}",
@@ -464,6 +504,15 @@ class SpatialTrialRunner(Node):
             self._counters["navigation_failures"] += 1
         self.data.append("navigation/goals.jsonl", {"event": "result", **outcome})
         self._publish_event("navigation_result", **outcome)
+        return outcome
+
+    def _navigation_failure(self, record: Dict[str, Any], reason: str, **details: Any) -> Dict[str, Any]:
+        """Persist a transparent, agent-visible navigation failure result."""
+        self._counters["navigation_failures"] += 1
+        outcome = {"success": False, "reason": reason, **record, **details}
+        self.data.append("navigation/goals.jsonl", {"event": "result", **outcome})
+        self._publish_event("navigation_result", **outcome)
+        self.transcript.line("NAV2", f"Navigation to {record['target_id']} failed: {reason}", **details)
         return outcome
 
     def _shutdown_once(self) -> None:

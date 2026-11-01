@@ -172,6 +172,7 @@ def test_passage_inspection_uses_nearest_valid_lidar_return_at_the_pose():
     assert observed["observed_status"] == "blocked"
     assert observed["source"] == "nearby_lidar"
     assert observed["nearest_lidar_range_m"] == 0.8
+    assert adapter.range_toward(subject.passages["A_E"].blocker_pose) == 0.8
 
 
 def test_passage_inspection_ignores_nearby_corridor_side_walls():
@@ -265,6 +266,14 @@ def test_physical_tool_calls_are_serialized_for_observation_conditioned_replanni
     runner_source = (Path(__file__).parents[1] / "terralift" / "spatial_trial_runner.py").read_text(encoding="utf-8")
     assert 'PHYSICAL_ACTION_TOOLS = {"navigate_to", "inspect_passage", "inspect_location"}' in runner_source
     assert '"code": "physical_action_deferred"' in runner_source
+
+
+def test_navigation_reports_a_local_obstacle_failure_instead_of_pressing_into_it():
+    runner_source = (Path(__file__).parents[1] / "terralift" / "spatial_trial_runner.py").read_text(encoding="utf-8")
+    assert '"navigation_blocked_by_local_obstacle"' in runner_source
+    assert "NAVIGATION_SAFETY_RANGE_M = 0.60" in runner_source
+    assert "initial_obstacle_range <= NAVIGATION_SAFETY_RANGE_M" in runner_source
+    assert "handle.cancel_goal_async()" in runner_source
 
 
 def test_static_map_matches_resized_physical_walls_and_scenario(tmp_path: Path):

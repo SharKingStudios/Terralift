@@ -101,6 +101,14 @@ class ProximityObservationAdapter:
             return None
         return min(candidates) if candidates else None
 
+    def range_toward(self, target: Pose2D) -> Optional[float]:
+        """Return live local LiDAR clearance toward a prospective goal.
+
+        Navigation uses this only as a safety preflight / no-progress guard;
+        it does not reveal scenario state or change the agent's memory.
+        """
+        return self._scan_minimum_toward(target)
+
     def inspect_passage(self, passage_id: str) -> Dict[str, Any]:
         if passage_id not in self.scenario.passages:
             raise ValueError(f"Unknown passage: {passage_id}")
